@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { normalizeManagedPath } from '../lib/path-policy.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, '..');
@@ -27,10 +28,11 @@ function readJson(file) {
 }
 
 function ensureRelativeSafe(rel) {
-  if (!rel || path.isAbsolute(rel)) fail(`unsafe managed path: ${rel}`);
-  const normalized = path.normalize(rel).split(path.sep).join('/');
-  if (normalized === '..' || normalized.startsWith('../')) fail(`unsafe managed path: ${rel}`);
-  return normalized;
+  try {
+    return normalizeManagedPath(rel, { allowGlob: true });
+  } catch (error) {
+    fail(error.message);
+  }
 }
 
 function unique(values) {
@@ -110,7 +112,8 @@ function copyPlan(facts) {
     ['templates/agent-results/README.md', 'docs/agent-results/README.md', ''],
     ['schema/task-contract.schema.json', '.agent-workflow/schema/task-contract.schema.json', ''],
     ['schema/result-contract.schema.json', '.agent-workflow/schema/result-contract.schema.json', ''],
-    ['validator/validate-contract.mjs', '.agent-workflow/validator/validate-contract.mjs', '']
+    ['validator/validate-contract.mjs', '.agent-workflow/validator/validate-contract.mjs', ''],
+    ['lib/path-policy.mjs', '.agent-workflow/lib/path-policy.mjs', '']
   ].map(([source, destination, suffix]) => ({
     source: path.join(packageRoot, source),
     destination: ensureRelativeSafe(destination),
@@ -186,7 +189,13 @@ function runValidator(kind, file, stdio = 'inherit') {
 }
 
 function validate(kind, fileArg) {
-  if (!['task', 'result'].includes(kind)) fail('validate requires kind: task or result');
+  if (kind === 'handoff') {
+    const result = spawnSync(process.execPath, [validatorPath(), 'handoff', ...process.argv.slice(4)], {
+      stdio: 'inherit'
+    });
+    process.exit(result.status ?? 1);
+  }
+  if (!['task', 'result'].includes(kind)) fail('validate requires kind: task, result, or handoff');
   if (!fileArg) fail('validate requires a contract file path');
   const file = path.resolve(fileArg);
   if (!fs.existsSync(file)) fail(`contract file does not exist: ${file}`);
@@ -295,7 +304,7 @@ function taskCreate(args) {
   const resultContract = ensureRelativeSafe(options.result ?? `${resultDirectoryPrefix}${id}-result.json`);
   if (!resultContract.startsWith(resultDirectoryPrefix)) fail(`result contract must be under ${resultDirectoryPrefix}`);
 
-  const explicitAllowed = unique(options.allow);
+  const explicitAllowed = unique(options.allow.map(ensureRelativeSafe));
   if (mode === 'IMPLEMENT' && !explicitAllowed.length) fail('IMPLEMENT tasks require at least one --allow path');
   if (mode === 'TEST_ONLY' || mode === 'REVIEW_ONLY') {
     for (const item of explicitAllowed) {
@@ -305,7 +314,7 @@ function taskCreate(args) {
   const allowedChanges = unique([...explicitAllowed, resultContract]);
 
   const forbiddenChanges = unique(options.forbid.length ? options.forbid : defaultForbidden(mode));
-  let completionContract = unique(options.complete.length ? options.complete : allowedChanges);
+  let completionContract = unique(options.complete.length ? options.complete.map(ensureRelativeSafe) : allowedChanges);
   completionContract = unique([
     ...completionContract,
     resultContract,
@@ -361,6 +370,66 @@ function taskCreate(args) {
 function hasActiveTask(target) {
   return [activeTaskRelativePath, activeTaskCompanionRelativePath]
     .filter((rel) => fs.existsSync(path.join(target, rel)));
+}
+
+function parseTargetJsonOptions(args) {
+  let target = process.cwd();
+  let json = false;
+  for (let index = 0; index < args.length; index += 1) {
+    const option = args[index];
+    if (option === '--json') {
+      json = true;
+    } else if (option === '--target' && args[index + 1]) {
+      target = path.resolve(args[index + 1]);
+      index += 1;
+    } else {
+      fail(`unknown option: ${option}`);
+    }
+  }
+  return { target, json };
+}
+
+function doctor(args) {
+  const { target, json } = parseTargetJsonOptions(args);
+  const manifestPath = path.join(target, manifestRelativePath);
+  const taskPath = path.join(target, activeTaskRelativePath);
+  const installation = { installed: fs.existsSync(manifestPath), valid: false };
+  if (installation.installed) {
+    try {
+      const manifest = readJson(manifestPath);
+      installation.valid = manifest.source_repository === 'Ran-sh/chatgpt_workflow';
+      installation.workflow_version = manifest.workflow_version ?? null;
+    } catch {
+      installation.valid = false;
+    }
+  }
+
+  const activeTask = { present: fs.existsSync(taskPath), valid: null };
+  if (activeTask.present) {
+    activeTask.valid = runValidator('task', taskPath, 'pipe').status === 0;
+  }
+
+  const isGitRepository = gitValue(target, ['rev-parse', '--is-inside-work-tree']) === 'true';
+  const worktree = {
+    is_git_repository: isGitRepository,
+    clean: isGitRepository ? gitValue(target, ['status', '--porcelain']) === null : null,
+    branch: isGitRepository ? gitValue(target, ['rev-parse', '--abbrev-ref', 'HEAD']) : null,
+    commit: isGitRepository ? gitValue(target, ['rev-parse', 'HEAD']) : null
+  };
+  const report = {
+    ok: installation.valid && (!activeTask.present || activeTask.valid === true),
+    installation,
+    active_task: activeTask,
+    worktree
+  };
+
+  if (json) console.log(JSON.stringify(report, null, 2));
+  else {
+    console.log(`Installation: ${installation.valid ? 'VALID' : installation.installed ? 'INVALID' : 'MISSING'}`);
+    console.log(`Active task: ${activeTask.present ? activeTask.valid ? 'VALID' : 'INVALID' : 'NONE'}`);
+    console.log(`Worktree: ${isGitRepository ? worktree.clean ? 'CLEAN' : 'DIRTY' : 'NOT A GIT REPOSITORY'}`);
+  }
+  process.exit(report.ok ? 0 : 1);
 }
 
 function uninstall(targetArg) {
@@ -421,6 +490,9 @@ switch (args[0]) {
     break;
   case 'validate':
     validate(args[1], args[2]);
+    break;
+  case 'doctor':
+    doctor(args.slice(1));
     break;
   case 'uninstall':
     uninstall(args[1]);

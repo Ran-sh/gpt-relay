@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
 import { readFile, writeFile } from 'node:fs/promises';
+import pathModule from 'node:path';
 import process from 'node:process';
+import { matchesManagedScope, normalizeManagedPath } from '../lib/path-policy.mjs';
 
 const STATUSES = new Set(['PASS', 'FAIL', 'PARTIAL', 'SKIP', 'BLOCKED', 'NOT RUN']);
 const MODES = new Set(['IMPLEMENT', 'TEST_ONLY', 'REVIEW_ONLY']);
@@ -89,8 +91,29 @@ function validateTask(value) {
   validateString(value.result_contract, 'result_contract', errors);
   validateStringArray(value.completion_commit_contract, 'completion_commit_contract', errors);
 
+  for (const [name, items] of [
+    ['allowed_changes', value.allowed_changes],
+    ['completion_commit_contract', value.completion_commit_contract]
+  ]) {
+    for (const [index, item] of (items ?? []).entries()) {
+      if (typeof item !== 'string') continue;
+      try {
+        normalizeManagedPath(item, { allowGlob: true });
+      } catch (error) {
+        errors.push(`${name}[${index}]: ${error.message}`);
+      }
+    }
+  }
+
   if (typeof value.result_contract === 'string' && !/^docs\/agent-results\//.test(value.result_contract)) {
     errors.push(`result_contract must be under docs/agent-results/**: ${value.result_contract}`);
+  }
+  if (typeof value.result_contract === 'string') {
+    try {
+      normalizeManagedPath(value.result_contract, { requiredPrefix: 'docs/agent-results' });
+    } catch (error) {
+      errors.push(`result_contract: ${error.message}`);
+    }
   }
 
   if (Array.isArray(value.allowed_changes) && typeof value.result_contract === 'string' && !value.allowed_changes.includes(value.result_contract)) {
@@ -176,6 +199,13 @@ function validateResult(value, { allowMissingResultValidation = false } = {}) {
   if (typeof value.result_path === 'string' && !/^docs\/agent-results\//.test(value.result_path)) {
     errors.push(`result_path must be under docs/agent-results/**: ${value.result_path}`);
   }
+  if (typeof value.result_path === 'string') {
+    try {
+      normalizeManagedPath(value.result_path, { requiredPrefix: 'docs/agent-results' });
+    } catch (error) {
+      errors.push(`result_path: ${error.message}`);
+    }
+  }
   if (value.notes !== undefined) validateStringArray(value.notes, 'notes', errors);
 
   if (!Array.isArray(value.tests)) errors.push('tests must be an array');
@@ -254,10 +284,86 @@ async function stampResult(path, value) {
   return [];
 }
 
+function parseHandoffOptions(args) {
+  const options = { target: process.cwd(), json: false };
+  for (let index = 0; index < args.length; index += 1) {
+    const option = args[index];
+    if (option === '--json') {
+      options.json = true;
+    } else if (['--task', '--result', '--target'].includes(option) && args[index + 1]) {
+      options[option.slice(2)] = args[index + 1];
+      index += 1;
+    } else {
+      throw new Error(`unknown or incomplete handoff option: ${option}`);
+    }
+  }
+  if (!options.task || !options.result) throw new Error('handoff requires --task and --result');
+  return options;
+}
+
+async function validateHandoff(options) {
+  const task = JSON.parse(await readFile(options.task, 'utf8'));
+  const result = JSON.parse(await readFile(options.result, 'utf8'));
+  const errors = [
+    ...validateTask(task).map((error) => `task: ${error}`),
+    ...validateResult(result).map((error) => `result: ${error}`)
+  ];
+
+  if (result.task_id !== task.id) errors.push(`task_id must match task.id (${task.id})`);
+  if (result.result_path !== task.result_contract) {
+    errors.push(`result_path must match task.result_contract (${task.result_contract})`);
+  }
+  if (task.source_commit !== 'LATEST' && result.source_commit !== task.source_commit) {
+    errors.push(`source_commit must match task.source_commit (${task.source_commit})`);
+  }
+
+  try {
+    const target = pathModule.resolve(options.target);
+    const relativeResult = pathModule.relative(target, pathModule.resolve(options.result)).replaceAll('\\', '/');
+    const actualResult = normalizeManagedPath(relativeResult);
+    if (actualResult !== result.result_path) {
+      errors.push(`result_path does not identify the supplied result file (${actualResult})`);
+    }
+  } catch (error) {
+    errors.push(`result_path: ${error.message}`);
+  }
+
+  for (const [index, changed] of (result.changed_files ?? []).entries()) {
+    try {
+      const normalized = normalizeManagedPath(changed);
+      if (!(task.completion_commit_contract ?? []).some((scope) => matchesManagedScope(normalized, scope))) {
+        errors.push(`changed_files[${index}] is outside completion_commit_contract: ${changed}`);
+      }
+    } catch (error) {
+      errors.push(`changed_files[${index}]: ${error.message}`);
+    }
+  }
+  if (result.status === 'PASS' && (result.blockers ?? []).length > 0) {
+    errors.push('PASS result must not contain blockers');
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
 async function main() {
   const [kind, path, ...options] = process.argv.slice(2);
+  if (kind === 'handoff') {
+    try {
+      const handoffOptions = parseHandoffOptions(process.argv.slice(3));
+      const report = await validateHandoff(handoffOptions);
+      if (handoffOptions.json) console.log(JSON.stringify(report, null, 2));
+      if (!report.valid) {
+        for (const error of report.errors) fail(error);
+      } else if (!handoffOptions.json) {
+        console.log(`VALID HANDOFF: ${handoffOptions.task} -> ${handoffOptions.result}`);
+      }
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
   if (!['task', 'result'].includes(kind) || !path) {
-    console.error('Usage: node validator/validate-contract.mjs <task|result> <path-to-json> [--stamp]');
+    console.error('Usage: node validator/validate-contract.mjs <task|result> <path-to-json> [--stamp] | handoff --task <file> --result <file> [--target <dir>] [--json]');
     process.exit(2);
   }
 
