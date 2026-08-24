@@ -347,7 +347,18 @@ async function validateHandoff(options) {
     const ancestor = exact
       ? spawnSync('git', ['-C', target, 'merge-base', '--is-ancestor', exact, task.source_branch]).status === 0
       : false;
-    if (!exact || result.source_commit !== exact || !ancestor) {
+    const sourceTaskResult = exact
+      ? spawnSync('git', ['-C', target, 'show', `${exact}:${ACTIVE_TASK_JSON}`], { encoding: 'utf8' })
+      : null;
+    let sourceContainsCurrentTask = false;
+    if (sourceTaskResult?.status === 0) {
+      try {
+        sourceContainsCurrentTask = JSON.stringify(JSON.parse(sourceTaskResult.stdout)) === JSON.stringify(task);
+      } catch {
+        sourceContainsCurrentTask = false;
+      }
+    }
+    if (!exact || result.source_commit !== exact || !ancestor || !sourceContainsCurrentTask) {
       errors.push(`source_commit must be an exact SHA resolved from ${task.source_branch}@LATEST at execution start`);
     }
   } else if (result.source_commit !== task.source_commit) {
