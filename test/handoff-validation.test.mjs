@@ -23,7 +23,7 @@ function taskContract() {
     id: 'handoff-001',
     mode: 'IMPLEMENT',
     source_branch: 'main',
-    source_commit: 'abc123',
+    source_commit: 'LATEST',
     objective: 'Validate the executor handoff.',
     context: '',
     allowed_changes: ['src/**', 'docs/agent-results/handoff-001-result.json'],
@@ -59,8 +59,21 @@ function fixture() {
   const target = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workflow-handoff-'));
   const taskFile = path.join(target, 'docs', 'agent-tasks', 'ACTIVE_TASK.json');
   const resultFile = path.join(target, 'docs', 'agent-results', 'handoff-001-result.json');
+  assert.equal(spawnSync('git', ['init', '-b', 'main'], { cwd: target, encoding: 'utf8' }).status, 0);
+  spawnSync('git', ['config', 'user.name', 'Workflow Tests'], { cwd: target });
+  spawnSync('git', ['config', 'user.email', 'tests@example.invalid'], { cwd: target });
+  fs.writeFileSync(path.join(target, 'README.md'), 'fixture\n');
+  spawnSync('git', ['add', 'README.md'], { cwd: target });
+  spawnSync('git', ['commit', '-m', 'fixture'], { cwd: target });
   writeJson(taskFile, taskContract());
-  writeJson(resultFile, resultContract());
+  spawnSync('git', ['add', 'docs/agent-tasks/ACTIVE_TASK.json'], { cwd: target });
+  assert.equal(spawnSync('git', ['commit', '-m', 'queue task'], { cwd: target, encoding: 'utf8' }).status, 0);
+  const sourceCommit = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: target, encoding: 'utf8' }).stdout.trim();
+  const result = resultContract();
+  result.source_commit = sourceCommit;
+  fs.mkdirSync(path.join(target, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(target, 'src', 'feature.mjs'), 'export const ready = true;\n');
+  writeJson(resultFile, result);
   return { target, taskFile, resultFile };
 }
 
@@ -113,6 +126,11 @@ for (const mismatch of [
       task.completion_commit_contract = ['src/**', task.result_contract, 'docs/agent-tasks/ACTIVE_TASK.json'];
       result.changed_files[0] = 'src/evil.mjs';
     }
+  },
+  {
+    name: 'git_diff',
+    expected: /actual git changes|changed_files/i,
+    mutate(_task, result) { result.changed_files = [result.result_path]; }
   }
 ]) {
   test(`validate handoff rejects mismatched ${mismatch.name}`, () => {

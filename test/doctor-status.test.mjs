@@ -52,3 +52,16 @@ test('doctor --json reports installation, ACTIVE task, and dirty worktree status
     fs.rmSync(target, { recursive: true, force: true });
   }
 });
+
+test('doctor fails closed when an installed runtime artifact is missing', () => {
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workflow-doctor-incomplete-'));
+  try {
+    assert.equal(run(['install', target]).status, 0);
+    fs.rmSync(path.join(target, '.agent-workflow', 'lib', 'path-policy.mjs'));
+    const doctor = run(['doctor', '--target', target, '--json'], target);
+    assert.notEqual(doctor.status, 0, doctor.stderr || doctor.stdout);
+    assert.equal(JSON.parse(doctor.stdout).installation.valid, false);
+  } finally {
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+});
