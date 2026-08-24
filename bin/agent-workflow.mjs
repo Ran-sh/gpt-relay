@@ -367,6 +367,60 @@ function taskCreate(args) {
   console.log('Executor: ANY');
 }
 
+function taskResume(args) {
+  let target = process.cwd();
+  let sourceCommit;
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === '--target' && args[index + 1]) {
+      target = path.resolve(args[index + 1]);
+      index += 1;
+    } else if (args[index] === '--source-commit' && args[index + 1]) {
+      sourceCommit = args[index + 1];
+      index += 1;
+    } else {
+      fail(`unknown task resume option: ${args[index]}`);
+    }
+  }
+
+  const taskPath = path.join(target, activeTaskRelativePath);
+  if (!fs.existsSync(taskPath)) fail(`no ACTIVE task found at ${activeTaskRelativePath}`);
+  if (runValidator('task', taskPath, 'pipe').status !== 0) fail('ACTIVE task is invalid');
+  const task = readJson(taskPath);
+  const oldResult = task.result_contract;
+  const oldResultPath = path.join(target, ensureRelativeSafe(oldResult));
+  if (!fs.existsSync(oldResultPath)) fail(`blocked result does not exist: ${oldResult}`);
+  const result = readJson(oldResultPath);
+  if (result.task_id !== task.id) fail('blocked result task_id does not match ACTIVE task');
+  if (result.status !== 'BLOCKED') fail('task resume requires the current Result Contract status to be BLOCKED');
+
+  const attempt = Number.isInteger(task.metadata?.attempt) ? task.metadata.attempt + 1 : 2;
+  const newResult = ensureRelativeSafe(`${resultDirectoryPrefix}${task.id}-attempt-${attempt}-result.json`);
+  if (fs.existsSync(path.join(target, newResult))) fail(`resume result already exists: ${newResult}`);
+  const replaceResult = (items) => unique(items.map((item) => item === oldResult ? newResult : item));
+  task.result_contract = newResult;
+  task.allowed_changes = replaceResult(task.allowed_changes);
+  task.completion_commit_contract = replaceResult(task.completion_commit_contract);
+  task.source_commit = sourceCommit ?? task.source_commit;
+  task.metadata = {
+    ...(task.metadata ?? {}),
+    attempt,
+    resumed_from: oldResult,
+    resumed_at: new Date().toISOString()
+  };
+
+  const temporary = `${taskPath}.tmp-${process.pid}`;
+  fs.writeFileSync(temporary, `${JSON.stringify(task, null, 2)}\n`, 'utf8');
+  const check = runValidator('task', temporary, 'pipe');
+  if (check.status !== 0) {
+    fs.rmSync(temporary, { force: true });
+    fail(`resumed Task Contract failed validation: ${(check.stderr || check.stdout || '').trim()}`);
+  }
+  fs.renameSync(temporary, taskPath);
+  console.log(`Resumed ${task.id} as attempt ${attempt}`);
+  console.log(`Preserved ${oldResult}`);
+  console.log(`Next result: ${newResult}`);
+}
+
 function hasActiveTask(target) {
   return [activeTaskRelativePath, activeTaskCompanionRelativePath]
     .filter((rel) => fs.existsSync(path.join(target, rel)));
@@ -432,6 +486,42 @@ function doctor(args) {
   process.exit(report.ok ? 0 : 1);
 }
 
+function status(args) {
+  const { target, json } = parseTargetJsonOptions(args);
+  const manifestPath = path.join(target, manifestRelativePath);
+  const taskPath = path.join(target, activeTaskRelativePath);
+  const report = { state: 'UNINSTALLED', task_id: null, result_path: null, observed_result_commit: null };
+
+  if (fs.existsSync(manifestPath)) {
+    report.state = 'IDLE';
+    if (fs.existsSync(taskPath)) {
+      if (runValidator('task', taskPath, 'pipe').status !== 0) {
+        report.state = 'INVALID';
+      } else {
+        const task = readJson(taskPath);
+        report.task_id = task.id;
+        report.result_path = task.result_contract;
+        const resultPath = path.join(target, ensureRelativeSafe(task.result_contract));
+        if (!fs.existsSync(resultPath)) {
+          report.state = 'READY';
+        } else {
+          try {
+            const result = readJson(resultPath);
+            report.state = result.status === 'BLOCKED' ? 'BLOCKED' : 'RESULT_READY';
+            report.observed_result_commit = gitValue(target, ['log', '-1', '--format=%H', '--', task.result_contract]);
+          } catch {
+            report.state = 'INVALID';
+          }
+        }
+      }
+    }
+  }
+
+  if (json) console.log(JSON.stringify(report, null, 2));
+  else console.log(`Workflow state: ${report.state}`);
+  process.exit(report.state === 'INVALID' ? 1 : 0);
+}
+
 function uninstall(targetArg) {
   const target = path.resolve(targetArg ?? process.cwd());
   const manifestPath = path.join(target, manifestRelativePath);
@@ -485,14 +575,18 @@ switch (args[0]) {
     install(args[1]);
     break;
   case 'task':
-    if (args[1] !== 'create') fail('task requires subcommand: create');
-    taskCreate(args.slice(2));
+    if (args[1] === 'create') taskCreate(args.slice(2));
+    else if (args[1] === 'resume') taskResume(args.slice(2));
+    else fail('task requires subcommand: create or resume');
     break;
   case 'validate':
     validate(args[1], args[2]);
     break;
   case 'doctor':
     doctor(args.slice(1));
+    break;
+  case 'status':
+    status(args.slice(1));
     break;
   case 'uninstall':
     uninstall(args[1]);
