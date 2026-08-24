@@ -342,10 +342,13 @@ async function validateHandoff(options) {
     errors.push(`result_path must match task.result_contract (${task.result_contract})`);
   }
   if (task.source_commit === 'LATEST') {
-    const resolved = spawnSync('git', ['-C', target, 'rev-parse', task.source_branch], { encoding: 'utf8' });
-    const expected = resolved.status === 0 ? resolved.stdout.trim() : null;
-    if (!expected || result.source_commit !== expected) {
-      errors.push(`source_commit must be the exact resolved SHA for ${task.source_branch}@LATEST${expected ? ` (${expected})` : ''}`);
+    const resolved = spawnSync('git', ['-C', target, 'rev-parse', `${result.source_commit}^{commit}`], { encoding: 'utf8' });
+    const exact = resolved.status === 0 ? resolved.stdout.trim() : null;
+    const ancestor = exact
+      ? spawnSync('git', ['-C', target, 'merge-base', '--is-ancestor', exact, task.source_branch]).status === 0
+      : false;
+    if (!exact || result.source_commit !== exact || !ancestor) {
+      errors.push(`source_commit must be an exact SHA resolved from ${task.source_branch}@LATEST at execution start`);
     }
   } else if (result.source_commit !== task.source_commit) {
     errors.push(`source_commit must match task.source_commit (${task.source_commit})`);
