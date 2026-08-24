@@ -31,4 +31,3 @@ These counts are a historical snapshot used to identify failure modes, not a pro
 - Delegate by capability and authorization, allowing Codex to perform all work its actual environment supports.
 
 Future work should add immutable release-artifact promotion, structured validation steps, capability manifests, installed-workflow upgrades, and multi-task dependency/lease support.
-

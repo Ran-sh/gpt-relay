@@ -19,4 +19,3 @@ A `BLOCKED` result is a checkpoint, not completion. Keep the ACTIVE task and the
 ## Completion
 
 Before removing an ACTIVE task, stamp the Result Contract and run `agent-workflow validate handoff`. The joint validator checks task identity, result path, source revision, and changed-file scope. Contract validation means the evidence envelope is valid; it does not mean the business outcome is PASS.
-
