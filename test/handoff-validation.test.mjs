@@ -114,6 +114,16 @@ for (const mismatch of [
     mutate(_task, result) { result.source_commit = 'different-source'; }
   },
   {
+    name: 'old_LATEST_ancestor',
+    expected: /source_commit|LATEST/i,
+    mutate(_task, result, target) {
+      result.source_commit = spawnSync('git', ['rev-list', '--max-parents=0', 'HEAD'], {
+        cwd: target, encoding: 'utf8'
+      }).stdout.trim();
+      result.changed_files.push('docs/agent-tasks/ACTIVE_TASK.json');
+    }
+  },
+  {
     name: 'changed_files',
     expected: /changed_files/i,
     mutate(_task, result) { result.changed_files.push('secrets.txt'); }
@@ -138,7 +148,7 @@ for (const mismatch of [
     try {
       const task = JSON.parse(fs.readFileSync(files.taskFile, 'utf8'));
       const resultContractValue = JSON.parse(fs.readFileSync(files.resultFile, 'utf8'));
-      mismatch.mutate(task, resultContractValue);
+      mismatch.mutate(task, resultContractValue, files.target);
       writeJson(files.taskFile, task);
       writeJson(files.resultFile, resultContractValue);
 
