@@ -67,3 +67,19 @@ test('task creation rejects traversal and absolute paths in managed path options
     fs.rmSync(target, { recursive: true, force: true });
   }
 });
+
+test('installer refuses to write managed files through a directory symlink or junction', () => {
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workflow-link-target-'));
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workflow-link-outside-'));
+  try {
+    fs.symlinkSync(outside, path.join(target, 'docs'), process.platform === 'win32' ? 'junction' : 'dir');
+    const install = run(['install', target]);
+    assert.notEqual(install.status, 0, install.stderr || install.stdout);
+    assert.match(install.stderr, /symbolic link|junction|unsafe managed path/i);
+    assert.equal(fs.existsSync(path.join(outside, 'agent-workflow.md')), false);
+    assert.equal(fs.existsSync(path.join(outside, '.agent-workflow-install.json')), false);
+  } finally {
+    fs.rmSync(target, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  }
+});
