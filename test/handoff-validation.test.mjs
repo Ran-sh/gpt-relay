@@ -104,6 +104,15 @@ for (const mismatch of [
     name: 'changed_files',
     expected: /changed_files/i,
     mutate(_task, result) { result.changed_files.push('secrets.txt'); }
+  },
+  {
+    name: 'allowed_changes',
+    expected: /allowed_changes/i,
+    mutate(task, result) {
+      task.allowed_changes = ['src/safe.mjs', task.result_contract];
+      task.completion_commit_contract = ['src/**', task.result_contract, 'docs/agent-tasks/ACTIVE_TASK.json'];
+      result.changed_files[0] = 'src/evil.mjs';
+    }
   }
 ]) {
   test(`validate handoff rejects mismatched ${mismatch.name}`, () => {

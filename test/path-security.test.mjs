@@ -47,6 +47,9 @@ test('task creation rejects traversal and absolute paths in managed path options
       ['--allow', '../outside/**'],
       ['--allow', 'C:\\temp\\outside/**'],
       ['--allow', '\\\\server\\share\\outside/**'],
+      ['--allow', 'C:outside/**'],
+      ['--allow', 'docs/file:stream'],
+      ['--allow', 'CON/file.txt'],
       ['--complete', '../outside.json'],
       ['--complete', 'C:\\temp\\outside.json'],
       ['--complete', '\\\\server\\share\\outside.json']
@@ -63,6 +66,24 @@ test('task creation rejects traversal and absolute paths in managed path options
         }
       });
     }
+  } finally {
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+});
+
+test('uninstall refuses manifest entries outside the workflow managed allowlist', () => {
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workflow-manifest-tamper-'));
+  try {
+    fs.writeFileSync(path.join(target, 'README.md'), 'preserve me\n');
+    assert.equal(run(['install', target]).status, 0);
+    const manifestPath = path.join(target, 'docs', '.agent-workflow-install.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.generated_files.push('README.md');
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const uninstall = run(['uninstall', target]);
+    assert.notEqual(uninstall.status, 0, uninstall.stderr || uninstall.stdout);
+    assert.equal(fs.readFileSync(path.join(target, 'README.md'), 'utf8'), 'preserve me\n');
   } finally {
     fs.rmSync(target, { recursive: true, force: true });
   }
