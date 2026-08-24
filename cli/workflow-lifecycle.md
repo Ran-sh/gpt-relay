@@ -48,11 +48,21 @@ Validation uses the canonical packaged validator and returns its exit status.
 
 Task permissions remain independent of the chosen executor. The validator also enforces result-path placement, read-only mode scope, Result Contract write permission, and completion-contract invariants.
 
+Before execution and completion:
+
+```bash
+agent-workflow doctor --target . --json
+agent-workflow status --target . --json
+agent-workflow validate handoff --task docs/agent-tasks/ACTIVE_TASK.json --result <result-file> --target .
+```
+
+`doctor` is a read-only preflight. `status` derives the workflow state and the observed Result commit from repository facts. Joint handoff validation checks Task/Result identity, source revision, result path, and changed-file scope.
+
 ## Execute
 
 Any compatible executor reads the same `ACTIVE_TASK.json`. It must obey the contract's mode, scope, source revision, validation requirements, acceptance criteria, result contract, and completion commit contract.
 
-When complete, the executor writes the Result Contract/report and removes `ACTIVE_TASK.json`; it also removes `ACTIVE_TASK.md` when present and included in the completion contract.
+When complete, the executor writes the Result Contract/report and removes `ACTIVE_TASK.json`; it also removes `ACTIVE_TASK.md` when present and included in the completion contract. BLOCKED is a recoverable checkpoint, not completion: keep the ACTIVE task and run `agent-workflow task resume` when the blocker is resolved.
 
 ## Uninstall / release cleanup
 

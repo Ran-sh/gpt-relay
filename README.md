@@ -1,15 +1,15 @@
 # ChatGPT Workflow
 
-**让 ChatGPT 成为 GitHub 上的总控，让 Codex / ZCode / Claude Code / DeepSeek Harness 成为远程执行器。**
+**让 ChatGPT 负责任务编排，让 Codex 等能力完整的 Agent 直接完成代码、测试、浏览器、Git/GitHub 与真实环境工作。**
 
-Current version: **1.8.0**
+Current version: **1.9.0**
 
 ## 工作流
 
 ```text
 你提出需求
    ↓
-ChatGPT 分析并直接修改 GitHub
+ChatGPT / Codex 分析当前可用能力并直接完成可执行工作
    ↓
 遇到必须在真实电脑 / 环境里完成的工作
    ↓
@@ -22,11 +22,12 @@ ChatGPT 写入 docs/agent-tasks/ACTIVE_TASK.json
 ChatGPT 检查 GitHub，继续下一步
 ```
 
-核心原则只有三个：
+核心原则只有四个：
 
-- **ChatGPT 负责决策和 GitHub 操作。**
+- **ChatGPT 负责编排；Codex 不被限制为只测试或只做本地工作。**
 - **GitHub 保存任务和结果。**
-- **Executor 只负责 ChatGPT 无法真实执行的本地工作。**
+- **按缺失能力交接，不按 Agent 名称分工。**
+- **BLOCKED 保留任务与证据，可恢复续跑。**
 
 ## 一句话执行
 
@@ -99,6 +100,22 @@ agent-workflow validate task docs/agent-tasks/ACTIVE_TASK.json
 agent-workflow validate result <result-file>
 ```
 
+执行前预检和完成前联合校验：
+
+```bash
+agent-workflow doctor --target . --json
+agent-workflow validate handoff --task docs/agent-tasks/ACTIVE_TASK.json --result <result-file> --target .
+```
+
+阻塞后不要删除 ACTIVE task：
+
+```bash
+agent-workflow status --target . --json
+agent-workflow task resume --target .
+```
+
+`result_commit: null` 是正常值；包含最终 Result 的提交由 Git 历史读取，避免结果文件自引用。
+
 卸载：
 
 ```bash
@@ -120,6 +137,8 @@ bin/agent-workflow.mjs                 CLI
 
 - `protocol/orchestrator-executor-boundary.md`
 - `protocol/local-execution-handoff.md`
+- `protocol/capability-delegation.md`
+- `protocol/reference-project-findings.md`
 - `install/EXECUTE_TASK_PROMPT.md`
 
 Reference projects: `Ran-sh/dsh-vision`, `Ran-sh/dsh-crew`.

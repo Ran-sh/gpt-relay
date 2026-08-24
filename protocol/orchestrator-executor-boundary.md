@@ -2,7 +2,7 @@
 
 ## Goal
 
-This workflow exists to make ChatGPT the GitHub-side orchestrator while external coding agents act as remote executors for work that requires the user's real machine, runtime, credentials, devices, or release environment.
+This workflow makes ChatGPT the durable task orchestrator while capable agents such as Codex can directly perform repository, shell, test, browser, Git, GitHub, and real-environment work available to them.
 
 The operating model is:
 
@@ -28,7 +28,7 @@ The orchestrator owns project direction and the handoff loop. It should:
 6. review the committed Result Contract and repository changes after the executor finishes;
 7. continue the next GitHub-side change or create the next Task Contract without asking the user to relay long reports manually.
 
-The orchestrator is the decision-maker. Executors must not self-assign follow-up work.
+The orchestrator is the decision-maker. Executors must not self-assign follow-up work, but they should use all capabilities already available and authorized instead of creating unnecessary handoffs.
 
 ## Remote Executor responsibilities
 
@@ -41,7 +41,8 @@ An executor should:
 3. execute exactly the authorized task in the real environment available to it;
 4. write the required Result Contract/report;
 5. commit/push only paths authorized by the Task Contract;
-6. stop when the task is complete or blocked.
+6. run joint handoff validation before completion;
+7. keep the ACTIVE task when blocked and stop at the recorded checkpoint.
 
 Executor identity never grants permissions and never determines task mode.
 

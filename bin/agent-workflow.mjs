@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { normalizeManagedPath } from '../lib/path-policy.mjs';
+import { normalizeManagedPath, resolveManagedPath } from '../lib/path-policy.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, '..');
@@ -30,6 +30,14 @@ function readJson(file) {
 function ensureRelativeSafe(rel) {
   try {
     return normalizeManagedPath(rel, { allowGlob: true });
+  } catch (error) {
+    fail(error.message);
+  }
+}
+
+function managedAbsolute(target, rel) {
+  try {
+    return resolveManagedPath(target, rel);
   } catch (error) {
     fail(error.message);
   }
@@ -143,7 +151,7 @@ function install(targetArg) {
   const missingSources = plan.filter((item) => !fs.existsSync(item.source));
   if (missingSources.length) fail(`package is incomplete; missing source: ${missingSources[0].source}`);
 
-  const conflicts = plan.map((item) => item.destination).filter((rel) => fs.existsSync(path.join(target, rel)));
+  const conflicts = plan.map((item) => item.destination).filter((rel) => fs.existsSync(managedAbsolute(target, rel)));
   if (conflicts.length) fail(`refusing to overwrite pre-existing files:\n- ${conflicts.join('\n- ')}`);
 
   const allDestinations = [...plan.map((item) => item.destination), manifestRelativePath];
@@ -152,7 +160,7 @@ function install(targetArg) {
     .sort((a, b) => a.split('/').length - b.split('/').length);
 
   for (const item of plan) {
-    const destination = path.join(target, item.destination);
+    const destination = managedAbsolute(target, item.destination);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.writeFileSync(destination, readText(item.source) + item.suffix, 'utf8');
   }
@@ -169,8 +177,9 @@ function install(targetArg) {
     project_facts: facts
   };
 
-  fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
-  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  const safeManifestPath = managedAbsolute(target, manifestRelativePath);
+  fs.mkdirSync(path.dirname(safeManifestPath), { recursive: true });
+  fs.writeFileSync(safeManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 
   console.log(`Installed Agent Workflow ${version} into ${target}`);
   console.log(`Managed files: ${manifest.generated_files.length}`);
@@ -288,9 +297,9 @@ function taskCreate(args) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) fail('task id may contain only letters, numbers, dot, underscore, and hyphen');
 
   const outputRel = activeTaskRelativePath;
-  const output = path.join(target, outputRel);
+  const output = managedAbsolute(target, outputRel);
   const companionRel = activeTaskCompanionRelativePath;
-  const companion = path.join(target, companionRel);
+  const companion = managedAbsolute(target, companionRel);
 
   if (fs.existsSync(output) || fs.existsSync(companion)) {
     fail('an ACTIVE task already exists; complete or intentionally remove it before creating another');
@@ -342,7 +351,8 @@ function taskCreate(args) {
       generator: `agent-workflow@${version}`,
       generated_at: new Date().toISOString(),
       companion: options.companion,
-      prepared_from_commit: preparedFromCommit
+      prepared_from_commit: preparedFromCommit,
+      attempt: 1
     }
   };
 
@@ -382,20 +392,27 @@ function taskResume(args) {
     }
   }
 
-  const taskPath = path.join(target, activeTaskRelativePath);
+  const taskPath = managedAbsolute(target, activeTaskRelativePath);
   if (!fs.existsSync(taskPath)) fail(`no ACTIVE task found at ${activeTaskRelativePath}`);
   if (runValidator('task', taskPath, 'pipe').status !== 0) fail('ACTIVE task is invalid');
   const task = readJson(taskPath);
   const oldResult = task.result_contract;
-  const oldResultPath = path.join(target, ensureRelativeSafe(oldResult));
+  const oldResultPath = managedAbsolute(target, oldResult);
   if (!fs.existsSync(oldResultPath)) fail(`blocked result does not exist: ${oldResult}`);
+  if (runValidator('result', oldResultPath, 'pipe').status !== 0) fail('blocked Result Contract is invalid');
+  const handoff = spawnSync(process.execPath, [
+    validatorPath(), 'handoff', '--task', taskPath, '--result', oldResultPath, '--target', target
+  ], { encoding: 'utf8' });
+  if (handoff.status !== 0) {
+    fail(`blocked Result Contract does not match the ACTIVE task: ${(handoff.stderr || handoff.stdout || '').trim()}`);
+  }
   const result = readJson(oldResultPath);
   if (result.task_id !== task.id) fail('blocked result task_id does not match ACTIVE task');
   if (result.status !== 'BLOCKED') fail('task resume requires the current Result Contract status to be BLOCKED');
 
   const attempt = Number.isInteger(task.metadata?.attempt) ? task.metadata.attempt + 1 : 2;
   const newResult = ensureRelativeSafe(`${resultDirectoryPrefix}${task.id}-attempt-${attempt}-result.json`);
-  if (fs.existsSync(path.join(target, newResult))) fail(`resume result already exists: ${newResult}`);
+  if (fs.existsSync(managedAbsolute(target, newResult))) fail(`resume result already exists: ${newResult}`);
   const replaceResult = (items) => unique(items.map((item) => item === oldResult ? newResult : item));
   task.result_contract = newResult;
   task.allowed_changes = replaceResult(task.allowed_changes);
@@ -416,6 +433,12 @@ function taskResume(args) {
     fail(`resumed Task Contract failed validation: ${(check.stderr || check.stdout || '').trim()}`);
   }
   fs.renameSync(temporary, taskPath);
+  if (task.metadata.companion === true) {
+    const companionPath = managedAbsolute(target, activeTaskCompanionRelativePath);
+    const companionTemporary = `${companionPath}.tmp-${process.pid}`;
+    fs.writeFileSync(companionTemporary, taskCompanion(task), 'utf8');
+    fs.renameSync(companionTemporary, companionPath);
+  }
   console.log(`Resumed ${task.id} as attempt ${attempt}`);
   console.log(`Preserved ${oldResult}`);
   console.log(`Next result: ${newResult}`);
@@ -423,7 +446,7 @@ function taskResume(args) {
 
 function hasActiveTask(target) {
   return [activeTaskRelativePath, activeTaskCompanionRelativePath]
-    .filter((rel) => fs.existsSync(path.join(target, rel)));
+    .filter((rel) => fs.existsSync(managedAbsolute(target, rel)));
 }
 
 function parseTargetJsonOptions(args) {
@@ -445,13 +468,19 @@ function parseTargetJsonOptions(args) {
 
 function doctor(args) {
   const { target, json } = parseTargetJsonOptions(args);
-  const manifestPath = path.join(target, manifestRelativePath);
-  const taskPath = path.join(target, activeTaskRelativePath);
+  const manifestPath = managedAbsolute(target, manifestRelativePath);
+  const taskPath = managedAbsolute(target, activeTaskRelativePath);
   const installation = { installed: fs.existsSync(manifestPath), valid: false };
   if (installation.installed) {
     try {
       const manifest = readJson(manifestPath);
-      installation.valid = manifest.source_repository === 'Ran-sh/chatgpt_workflow';
+      const installedFiles = Array.isArray(manifest.generated_files) ? manifest.generated_files : [];
+      installation.valid = manifest.source_repository === 'Ran-sh/chatgpt_workflow'
+        && manifest.workflow_version === readText(path.join(packageRoot, 'VERSION')).trim()
+        && installedFiles.length > 0
+        && installedFiles.every((rel) => fs.existsSync(managedAbsolute(target, rel)))
+        && fs.existsSync(managedAbsolute(target, '.agent-workflow/validator/validate-contract.mjs'))
+        && fs.existsSync(managedAbsolute(target, '.agent-workflow/lib/path-policy.mjs'));
       installation.workflow_version = manifest.workflow_version ?? null;
     } catch {
       installation.valid = false;
@@ -488,12 +517,27 @@ function doctor(args) {
 
 function status(args) {
   const { target, json } = parseTargetJsonOptions(args);
-  const manifestPath = path.join(target, manifestRelativePath);
-  const taskPath = path.join(target, activeTaskRelativePath);
+  const manifestPath = managedAbsolute(target, manifestRelativePath);
+  const taskPath = managedAbsolute(target, activeTaskRelativePath);
   const report = { state: 'UNINSTALLED', task_id: null, result_path: null, observed_result_commit: null };
 
   if (fs.existsSync(manifestPath)) {
-    report.state = 'IDLE';
+    try {
+      const manifest = readJson(manifestPath);
+      const installedFiles = Array.isArray(manifest.generated_files) ? manifest.generated_files : [];
+      const installationValid = manifest.source_repository === 'Ran-sh/chatgpt_workflow'
+        && manifest.workflow_version === readText(path.join(packageRoot, 'VERSION')).trim()
+        && installedFiles.length > 0
+        && installedFiles.every((rel) => fs.existsSync(managedAbsolute(target, rel)));
+      report.state = installationValid ? 'IDLE' : 'INVALID';
+    } catch {
+      report.state = 'INVALID';
+    }
+    if (report.state === 'INVALID') {
+      if (json) console.log(JSON.stringify(report, null, 2));
+      else console.log(`Workflow state: ${report.state}`);
+      process.exit(1);
+    }
     if (fs.existsSync(taskPath)) {
       if (runValidator('task', taskPath, 'pipe').status !== 0) {
         report.state = 'INVALID';
@@ -501,9 +545,11 @@ function status(args) {
         const task = readJson(taskPath);
         report.task_id = task.id;
         report.result_path = task.result_contract;
-        const resultPath = path.join(target, ensureRelativeSafe(task.result_contract));
+        const resultPath = managedAbsolute(target, task.result_contract);
         if (!fs.existsSync(resultPath)) {
           report.state = 'READY';
+        } else if (runValidator('result', resultPath, 'pipe').status !== 0) {
+          report.state = 'INVALID';
         } else {
           try {
             const result = readJson(resultPath);
@@ -524,7 +570,7 @@ function status(args) {
 
 function uninstall(targetArg) {
   const target = path.resolve(targetArg ?? process.cwd());
-  const manifestPath = path.join(target, manifestRelativePath);
+  const manifestPath = managedAbsolute(target, manifestRelativePath);
   if (!fs.existsSync(manifestPath)) fail(`no installation manifest found at ${manifestRelativePath}`);
 
   const active = hasActiveTask(target);
@@ -539,20 +585,30 @@ function uninstall(targetArg) {
   if (manifest.source_repository !== 'Ran-sh/chatgpt_workflow') fail('installation manifest does not identify Ran-sh/chatgpt_workflow');
   if (!Array.isArray(manifest.generated_files)) fail('installation manifest has no generated_files array');
 
+  const managedAllowlist = new Set([
+    ...copyPlan(detectProject(target)).map((item) => item.destination),
+    manifestRelativePath
+  ]);
+  const unexpectedFiles = manifest.generated_files.filter((rel) => !managedAllowlist.has(ensureRelativeSafe(rel)));
+  if (unexpectedFiles.length) fail(`installation manifest contains unmanaged files:\n- ${unexpectedFiles.join('\n- ')}`);
+
   const files = manifest.generated_files.map(ensureRelativeSafe);
   if (!files.includes(manifestRelativePath)) files.push(manifestRelativePath);
 
   const ordered = files.filter((rel) => rel !== manifestRelativePath);
   ordered.push(manifestRelativePath);
   for (const rel of ordered) {
-    const absolute = path.join(target, rel);
+    const absolute = managedAbsolute(target, rel);
     if (fs.existsSync(absolute) && fs.statSync(absolute).isFile()) fs.unlinkSync(absolute);
   }
 
+  const allowedDirs = new Set([...managedAllowlist].flatMap(parentDirectories));
   const dirs = Array.isArray(manifest.generated_dirs) ? manifest.generated_dirs.map(ensureRelativeSafe) : [];
+  const unexpectedDirs = dirs.filter((rel) => !allowedDirs.has(rel));
+  if (unexpectedDirs.length) fail(`installation manifest contains unmanaged directories:\n- ${unexpectedDirs.join('\n- ')}`);
   dirs.sort((a, b) => b.split('/').length - a.split('/').length);
   for (const rel of dirs) {
-    const absolute = path.join(target, rel);
+    const absolute = managedAbsolute(target, rel);
     if (fs.existsSync(absolute) && fs.statSync(absolute).isDirectory() && fs.readdirSync(absolute).length === 0) fs.rmdirSync(absolute);
   }
 
@@ -561,7 +617,22 @@ function uninstall(targetArg) {
 }
 
 function help() {
-  console.log(`agent-workflow\n\nUsage:\n  agent-workflow install [target]\n  agent-workflow task create --mode <MODE> --objective <TEXT> --validate <CHECK> --accept <CRITERION> [options]\n  agent-workflow validate task <file>\n  agent-workflow validate result <file>\n  agent-workflow uninstall [target]\n  agent-workflow --version\n\nTask create options:\n  --target <dir>\n  --id <task-id>\n  --source-branch <branch>\n  --source-commit <sha-or-symbolic-ref>  defaults to LATEST on source_branch\n  --context <text>\n  --allow <path>          repeatable; required for IMPLEMENT; result-only for read-only modes\n  --forbid <path-or-rule> repeatable; safe defaults used when omitted\n  --validate <check>      repeatable; at least one required\n  --accept <criterion>    repeatable; at least one required\n  --result <path>         must be under docs/agent-results/\n  --complete <path>       repeatable completion commit additions\n  --companion             also write non-authoritative ACTIVE_TASK.md\n\nACTIVE tasks always use docs/agent-tasks/ACTIVE_TASK.json. The installer never creates an ACTIVE task. Task generation refuses to replace an existing ACTIVE task. Uninstall refuses to run while an ACTIVE task exists.`);
+  console.log(`agent-workflow
+
+Usage:
+  agent-workflow install [target]
+  agent-workflow task create [options]
+  agent-workflow task resume [--target <dir>] [--source-commit <revision>]
+  agent-workflow doctor [--target <dir>] [--json]
+  agent-workflow status [--target <dir>] [--json]
+  agent-workflow validate task <file>
+  agent-workflow validate result <file>
+  agent-workflow validate handoff --task <file> --result <file> [--target <dir>] [--json]
+  agent-workflow uninstall [target]
+  agent-workflow --version
+
+Run task create with --mode, --objective, --validate and --accept. IMPLEMENT also requires --allow.
+BLOCKED results keep the ACTIVE task; task resume preserves the old result and opens a new attempt.`);
 }
 
 const args = process.argv.slice(2);

@@ -21,19 +21,24 @@ function writeJson(file, value) {
 test('BLOCKED task remains active and resume creates a new result attempt without overwriting evidence', () => {
   const target = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workflow-resume-'));
   try {
+    assert.equal(spawnSync('git', ['init', '-b', 'main'], { cwd: target, encoding: 'utf8' }).status, 0);
+    spawnSync('git', ['config', 'user.name', 'Workflow Tests'], { cwd: target });
+    spawnSync('git', ['config', 'user.email', 'tests@example.invalid'], { cwd: target });
     assert.equal(run(['install', target]).status, 0);
     assert.equal(run([
       'task', 'create', '--target', target, '--id', 'resume-001', '--mode', 'IMPLEMENT',
-      '--source-branch', 'main', '--source-commit', 'abc123', '--objective', 'Resume safely.',
+      '--source-branch', 'main', '--source-commit', 'LATEST', '--objective', 'Resume safely.',
       '--allow', 'src/**', '--validate', 'node --test', '--accept', 'work completes'
     ]).status, 0);
+    spawnSync('git', ['add', '.'], { cwd: target });
+    assert.equal(spawnSync('git', ['commit', '-m', 'queue task'], { cwd: target, encoding: 'utf8' }).status, 0);
 
     const activePath = path.join(target, 'docs', 'agent-tasks', 'ACTIVE_TASK.json');
     const task = JSON.parse(fs.readFileSync(activePath, 'utf8'));
     const oldResultPath = path.join(target, ...task.result_contract.split('/'));
     writeJson(oldResultPath, {
       task_id: task.id,
-      source_commit: task.source_commit,
+      source_commit: spawnSync('git', ['rev-parse', 'HEAD'], { cwd: target, encoding: 'utf8' }).stdout.trim(),
       result_commit: null,
       status: 'BLOCKED',
       summary: 'Waiting for an external capability.',

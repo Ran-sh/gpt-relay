@@ -77,7 +77,7 @@ Never convert an unexecuted or blocked check into PASS.
 New execution results use **Result Contract v2** (`schema_version: 2`). Historical Result Contracts without `schema_version` are legacy v1 and remain valid; do not rewrite old reports only to upgrade their format.
 
 1. Read this workflow.
-2. Read and validate `docs/agent-tasks/ACTIVE_TASK.json`.
+2. Run `agent-workflow doctor --json`, then read and validate `docs/agent-tasks/ACTIVE_TASK.json`.
 3. Confirm source revision and worktree safety.
 4. Start a Result Contract v2 draft and record `timeline.started_at` at second precision with timezone when real task execution begins.
 5. Execute only the authorized scope in the real environment.
@@ -89,8 +89,8 @@ New execution results use **Result Contract v2** (`schema_version: 2`). Historic
    node .agent-workflow/validator/validate-contract.mjs result <result-json> --stamp
    ```
 
-9. Verify completion against `acceptance_criteria`. A new Result Contract v2 without stamped validator evidence is incomplete.
-10. When completion is real and `delete_active_task_on_completion` is true, remove `ACTIVE_TASK.json` and its companion when required.
+9. Run `agent-workflow validate handoff --task docs/agent-tasks/ACTIVE_TASK.json --result <result-json> --target .` and verify completion against `acceptance_criteria`. A new Result Contract v2 without stamped validator evidence is incomplete.
+10. When completion is real and `delete_active_task_on_completion` is true, remove `ACTIVE_TASK.json` and its companion when required. A BLOCKED result is not completion: keep the task, then use `agent-workflow task resume` after the missing capability becomes available.
 11. Commit/push only paths allowed by `completion_commit_contract` and repository policy.
 12. Stop. Do not self-assign follow-up work.
 
@@ -115,6 +115,8 @@ All three timestamps use ISO 8601 with year, month, day, hour, minute, second, a
 Historical v1 Result Contracts, identified by the absence of `schema_version`, remain valid without v2 timeline/stamp fields so workflow upgrades do not invalidate prior evidence.
 
 After execution, the user may simply tell ChatGPT that the executor is finished. ChatGPT should inspect GitHub directly, evaluate the result, and decide the next action.
+
+`result_commit` may remain null. The commit containing the final Result is derived from Git history (`agent-workflow status --json`) instead of being written into the file that would need to identify itself.
 
 ## 9. Orchestrator boundary
 

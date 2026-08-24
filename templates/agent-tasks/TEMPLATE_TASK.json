@@ -27,6 +27,7 @@
   ],
   "delete_active_task_on_completion": true,
   "metadata": {
-    "executor": "ANY"
+    "executor": "ANY",
+    "attempt": 1
   }
 }

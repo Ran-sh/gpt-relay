@@ -2,8 +2,9 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 import pathModule from 'node:path';
+import { spawnSync } from 'node:child_process';
 import process from 'node:process';
-import { matchesManagedScope, normalizeManagedPath } from '../lib/path-policy.mjs';
+import { matchesManagedScope, normalizeManagedPath, resolveManagedPath } from '../lib/path-policy.mjs';
 
 const STATUSES = new Set(['PASS', 'FAIL', 'PARTIAL', 'SKIP', 'BLOCKED', 'NOT RUN']);
 const MODES = new Set(['IMPLEMENT', 'TEST_ONLY', 'REVIEW_ONLY']);
@@ -301,9 +302,36 @@ function parseHandoffOptions(args) {
   return options;
 }
 
+function gitChangedPaths(target, sourceCommit) {
+  const commands = [
+    ['diff', '--name-only', '-z', `${sourceCommit}..HEAD`],
+    ['diff', '--name-only', '-z'],
+    ['diff', '--cached', '--name-only', '-z'],
+    ['ls-files', '--others', '--exclude-standard', '-z']
+  ];
+  const changed = new Set();
+  for (const args of commands) {
+    const result = spawnSync('git', ['-C', target, ...args], { encoding: 'utf8' });
+    if (result.status !== 0) return null;
+    for (const file of result.stdout.split('\0').filter(Boolean)) {
+      changed.add(normalizeManagedPath(file.replaceAll('\\', '/')));
+    }
+  }
+  return [...changed].sort();
+}
+
 async function validateHandoff(options) {
-  const task = JSON.parse(await readFile(options.task, 'utf8'));
-  const result = JSON.parse(await readFile(options.result, 'utf8'));
+  const target = pathModule.resolve(options.target);
+  const canonicalTask = resolveManagedPath(target, ACTIVE_TASK_JSON);
+  if (pathModule.resolve(options.task) !== canonicalTask) {
+    return { valid: false, errors: [`task must be the canonical ${ACTIVE_TASK_JSON}`] };
+  }
+  const task = JSON.parse(await readFile(canonicalTask, 'utf8'));
+  const canonicalResult = resolveManagedPath(target, task.result_contract);
+  if (pathModule.resolve(options.result) !== canonicalResult) {
+    return { valid: false, errors: ['result file must match the canonical task.result_contract path'] };
+  }
+  const result = JSON.parse(await readFile(canonicalResult, 'utf8'));
   const errors = [
     ...validateTask(task).map((error) => `task: ${error}`),
     ...validateResult(result).map((error) => `result: ${error}`)
@@ -313,12 +341,17 @@ async function validateHandoff(options) {
   if (result.result_path !== task.result_contract) {
     errors.push(`result_path must match task.result_contract (${task.result_contract})`);
   }
-  if (task.source_commit !== 'LATEST' && result.source_commit !== task.source_commit) {
+  if (task.source_commit === 'LATEST') {
+    const resolved = spawnSync('git', ['-C', target, 'rev-parse', task.source_branch], { encoding: 'utf8' });
+    const expected = resolved.status === 0 ? resolved.stdout.trim() : null;
+    if (!expected || result.source_commit !== expected) {
+      errors.push(`source_commit must be the exact resolved SHA for ${task.source_branch}@LATEST${expected ? ` (${expected})` : ''}`);
+    }
+  } else if (result.source_commit !== task.source_commit) {
     errors.push(`source_commit must match task.source_commit (${task.source_commit})`);
   }
 
   try {
-    const target = pathModule.resolve(options.target);
     const relativeResult = pathModule.relative(target, pathModule.resolve(options.result)).replaceAll('\\', '/');
     const actualResult = normalizeManagedPath(relativeResult);
     if (actualResult !== result.result_path) {
@@ -334,8 +367,29 @@ async function validateHandoff(options) {
       if (!(task.completion_commit_contract ?? []).some((scope) => matchesManagedScope(normalized, scope))) {
         errors.push(`changed_files[${index}] is outside completion_commit_contract: ${changed}`);
       }
+      const completionOnly = normalized === ACTIVE_TASK_JSON || normalized === ACTIVE_TASK_MD;
+      if (!completionOnly && !(task.allowed_changes ?? []).some((scope) => matchesManagedScope(normalized, scope))) {
+        errors.push(`changed_files[${index}] is outside allowed_changes: ${changed}`);
+      }
     } catch (error) {
       errors.push(`changed_files[${index}]: ${error.message}`);
+    }
+  }
+  if (!(result.changed_files ?? []).includes(result.result_path)) {
+    errors.push('changed_files must include result_path');
+  }
+  const actualChanges = gitChangedPaths(target, result.source_commit);
+  if (actualChanges === null) {
+    errors.push(`cannot resolve actual Git changes from source_commit: ${result.source_commit}`);
+  } else {
+    let reportedChanges = [];
+    try {
+      reportedChanges = [...new Set((result.changed_files ?? []).map((file) => normalizeManagedPath(file)))].sort();
+    } catch {
+      // Individual changed_files diagnostics above are more specific.
+    }
+    if (JSON.stringify(actualChanges) !== JSON.stringify(reportedChanges)) {
+      errors.push(`changed_files must exactly match actual Git changes (actual: ${actualChanges.join(', ') || '(none)'})`);
     }
   }
   if (result.status === 'PASS' && (result.blockers ?? []).length > 0) {

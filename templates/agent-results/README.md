@@ -10,9 +10,17 @@ Result Contract v2 must contain:
 - overall status
 - exact validation commands and evidence
 - changed files and blockers
-- result path / result commit when available
+- result path; `result_commit` may remain null
 - a second-precision execution timeline with timezone
 - validator-owned Result Contract evidence
+
+`result_commit` must not try to name the commit containing the Result file itself; that value is self-referential. Leave it null when no earlier work commit applies. After commit, `agent-workflow status --json` reports `observed_result_commit` from Git history.
+
+A validator stamp means the Result Contract is structurally valid. It does not turn a BLOCKED, PARTIAL, or FAIL business outcome into PASS. Before completion, run joint validation:
+
+```bash
+agent-workflow validate handoff --task docs/agent-tasks/ACTIVE_TASK.json --result <result-file> --target .
+```
 
 ## Timeline
 

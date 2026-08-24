@@ -20,6 +20,8 @@ It is machine-readable and authoritative. `ACTIVE_TASK.md` may exist only as a n
 
 Do not create an ACTIVE task during workflow installation.
 
+Run `agent-workflow doctor --json` before execution. If the result is BLOCKED, keep the ACTIVE task and the blocked Result Contract. When the missing capability is available, run `agent-workflow task resume`; the CLI preserves prior evidence and opens a numbered attempt Result path.
+
 If the active task is missing or invalid, the executor must stop instead of inferring work from chat history, old reports, issues, source code, or another executor's files.
 
 ## Generate a task

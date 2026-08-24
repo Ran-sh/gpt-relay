@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.0
+
+- Changed delegation from agent-name roles to capability-based execution; Codex may directly perform repository, implementation, test, browser, Git, GitHub, and real-environment work when available and authorized.
+- Added canonical managed-path validation that rejects traversal, drive-qualified, UNC, and unsafe path forms across task creation and validation.
+- Added `agent-workflow doctor` and `status` machine-readable control-plane commands.
+- Added `validate handoff` to cross-check Task and Result identity, result path, source revision, and changed-file scope.
+- Added resumable BLOCKED attempts. The ACTIVE task and prior Result are preserved; `task resume` opens a numbered result path.
+- Clarified that `result_commit: null` is normal and eliminated the self-referential follow-up-commit expectation.
+- Added evidence-backed findings from `dsh-vision` and `dsh-crew` to keep real failure modes in the source workflow.
+
 ## 1.8.0
 
 - Refocused the workflow on ChatGPT as the GitHub-side orchestrator and Codex/ZCode/Claude Code/DeepSeek Harness as interchangeable remote executors.

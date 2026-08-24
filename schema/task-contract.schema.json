@@ -28,7 +28,7 @@
     "context": { "type": "string" },
     "allowed_changes": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
+      "items": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$" },
       "uniqueItems": true
     },
     "forbidden_changes": {
@@ -49,10 +49,10 @@
       "minItems": 1,
       "uniqueItems": true
     },
-    "result_contract": { "type": "string", "minLength": 1, "pattern": "^docs/agent-results/" },
+    "result_contract": { "type": "string", "minLength": 1, "pattern": "^docs/agent-results/(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^*?\\[\\]{}\\u0000]+$" },
     "completion_commit_contract": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
+      "items": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]+$" },
       "uniqueItems": true
     },
     "delete_active_task_on_completion": { "type": "boolean", "const": true },

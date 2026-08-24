@@ -17,7 +17,7 @@
     "schema_version": { "type": "integer", "const": 2 },
     "task_id": { "type": "string", "minLength": 1 },
     "source_commit": { "type": "string", "minLength": 1 },
-    "result_commit": { "type": ["string", "null"] },
+    "result_commit": { "description": "Optional commit containing work completed before this Result was written. Null is recommended when no such commit applies; the commit containing this file is derived from Git history.", "type": ["string", "null"] },
     "status": {
       "type": "string",
       "enum": ["PASS", "FAIL", "PARTIAL", "SKIP", "BLOCKED", "NOT RUN"]
@@ -40,7 +40,7 @@
     },
     "changed_files": {
       "type": "array",
-      "items": { "type": "string" },
+      "items": { "type": "string", "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$))[^*?\\[\\]{}\\u0000]+$" },
       "uniqueItems": true
     },
     "tests": {
@@ -63,7 +63,7 @@
       "type": "array",
       "items": { "type": "string" }
     },
-    "result_path": { "type": "string", "minLength": 1, "pattern": "^docs/agent-results/" },
+    "result_path": { "type": "string", "minLength": 1, "pattern": "^docs/agent-results/(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[^*?\\[\\]{}\\u0000]+$" },
     "result_validation": {
       "type": "object",
       "additionalProperties": false,

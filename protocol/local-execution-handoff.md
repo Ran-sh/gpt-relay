@@ -2,7 +2,7 @@
 
 ## When ChatGPT should hand work to a remote executor
 
-Create an ACTIVE Task only when a meaningful part of the work cannot be completed through the available GitHub operations or requires the user's actual execution environment.
+Create an ACTIVE Task only when a meaningful part of the work cannot be completed with the current agent's available and authorized repository, shell, browser, GitHub, credential, device, or real-environment capabilities.
 
 Typical handoff cases include:
 
@@ -44,7 +44,7 @@ The trigger must not repeat these details.
 
 ## Completion
 
-After the executor finishes, ChatGPT should read the Result Contract and relevant commit/PR directly from GitHub. The user should normally need to send only a short completion signal such as:
+Before completion, the executor runs `agent-workflow validate handoff`. A BLOCKED result keeps the ACTIVE task and becomes a resumable checkpoint; it is not deleted and recreated. After the executor finishes, ChatGPT should read the Result Contract and relevant commit/PR directly from GitHub. The user should normally need to send only a short completion signal such as:
 
 ```text
 Codex finished. Check GitHub.
