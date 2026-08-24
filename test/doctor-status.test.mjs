@@ -65,3 +65,28 @@ test('doctor fails closed when an installed runtime artifact is missing', () => 
     fs.rmSync(target, { recursive: true, force: true });
   }
 });
+
+test('status rejects a valid Result Contract that belongs to another task', () => {
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workflow-status-mismatch-'));
+  try {
+    assert.equal(run(['install', target]).status, 0);
+    assert.equal(run([
+      'task', 'create', '--target', target, '--id', 'status-001', '--mode', 'REVIEW_ONLY',
+      '--source-branch', 'main', '--source-commit', 'abc123', '--objective', 'Check status identity.',
+      '--validate', 'inspect files', '--accept', 'identity matches'
+    ]).status, 0);
+    const resultPath = path.join(target, 'docs', 'agent-results', 'status-001-result.json');
+    fs.mkdirSync(path.dirname(resultPath), { recursive: true });
+    fs.writeFileSync(resultPath, `${JSON.stringify({
+      task_id: 'different-task', source_commit: 'abc123', result_commit: null, status: 'PASS',
+      changed_files: ['docs/agent-results/status-001-result.json'],
+      tests: [{ name: 'inspect files', status: 'PASS' }], blockers: [],
+      result_path: 'docs/agent-results/status-001-result.json'
+    }, null, 2)}\n`);
+    const status = run(['status', '--target', target, '--json'], target);
+    assert.notEqual(status.status, 0, status.stderr || status.stdout);
+    assert.equal(JSON.parse(status.stdout).state, 'INVALID');
+  } finally {
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+});

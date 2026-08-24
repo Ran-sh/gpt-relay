@@ -89,6 +89,26 @@ test('uninstall refuses manifest entries outside the workflow managed allowlist'
   }
 });
 
+test('uninstall validates every managed directory before deleting any file', () => {
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workflow-dir-tamper-'));
+  try {
+    assert.equal(run(['install', target]).status, 0);
+    const manifestPath = path.join(target, 'docs', '.agent-workflow-install.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    manifest.generated_dirs ??= [];
+    manifest.generated_dirs.push('unmanaged-empty');
+    fs.mkdirSync(path.join(target, 'unmanaged-empty'));
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+    const uninstall = run(['uninstall', target]);
+    assert.notEqual(uninstall.status, 0, uninstall.stderr || uninstall.stdout);
+    assert.equal(fs.existsSync(path.join(target, 'docs', 'agent-workflow.md')), true);
+    assert.equal(fs.existsSync(manifestPath), true);
+  } finally {
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+});
+
 test('installer refuses to write managed files through a directory symlink or junction', () => {
   const target = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workflow-link-target-'));
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-workflow-link-outside-'));

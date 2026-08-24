@@ -466,6 +466,20 @@ function parseTargetJsonOptions(args) {
   return { target, json };
 }
 
+function installationIsValid(target, manifest, { smoke = false } = {}) {
+  if (manifest.source_repository !== 'Ran-sh/chatgpt_workflow'
+    || manifest.workflow_version !== readText(path.join(packageRoot, 'VERSION')).trim()
+    || !Array.isArray(manifest.generated_files)) return false;
+  const expected = new Set([...copyPlan(detectProject(target)).map((item) => item.destination), manifestRelativePath]);
+  const installed = new Set(manifest.generated_files.map(ensureRelativeSafe));
+  if (expected.size !== installed.size || [...expected].some((rel) => !installed.has(rel))) return false;
+  if (![...expected].every((rel) => fs.existsSync(managedAbsolute(target, rel)))) return false;
+  if (!smoke) return true;
+  const validator = managedAbsolute(target, '.agent-workflow/validator/validate-contract.mjs');
+  const template = managedAbsolute(target, 'docs/agent-tasks/TEMPLATE_TASK.json');
+  return spawnSync(process.execPath, [validator, 'task', template], { encoding: 'utf8' }).status === 0;
+}
+
 function doctor(args) {
   const { target, json } = parseTargetJsonOptions(args);
   const manifestPath = managedAbsolute(target, manifestRelativePath);
@@ -474,13 +488,7 @@ function doctor(args) {
   if (installation.installed) {
     try {
       const manifest = readJson(manifestPath);
-      const installedFiles = Array.isArray(manifest.generated_files) ? manifest.generated_files : [];
-      installation.valid = manifest.source_repository === 'Ran-sh/chatgpt_workflow'
-        && manifest.workflow_version === readText(path.join(packageRoot, 'VERSION')).trim()
-        && installedFiles.length > 0
-        && installedFiles.every((rel) => fs.existsSync(managedAbsolute(target, rel)))
-        && fs.existsSync(managedAbsolute(target, '.agent-workflow/validator/validate-contract.mjs'))
-        && fs.existsSync(managedAbsolute(target, '.agent-workflow/lib/path-policy.mjs'));
+      installation.valid = installationIsValid(target, manifest, { smoke: true });
       installation.workflow_version = manifest.workflow_version ?? null;
     } catch {
       installation.valid = false;
@@ -524,12 +532,7 @@ function status(args) {
   if (fs.existsSync(manifestPath)) {
     try {
       const manifest = readJson(manifestPath);
-      const installedFiles = Array.isArray(manifest.generated_files) ? manifest.generated_files : [];
-      const installationValid = manifest.source_repository === 'Ran-sh/chatgpt_workflow'
-        && manifest.workflow_version === readText(path.join(packageRoot, 'VERSION')).trim()
-        && installedFiles.length > 0
-        && installedFiles.every((rel) => fs.existsSync(managedAbsolute(target, rel)));
-      report.state = installationValid ? 'IDLE' : 'INVALID';
+      report.state = installationIsValid(target, manifest) ? 'IDLE' : 'INVALID';
     } catch {
       report.state = 'INVALID';
     }
@@ -553,8 +556,16 @@ function status(args) {
         } else {
           try {
             const result = readJson(resultPath);
-            report.state = result.status === 'BLOCKED' ? 'BLOCKED' : 'RESULT_READY';
-            report.observed_result_commit = gitValue(target, ['log', '-1', '--format=%H', '--', task.result_contract]);
+            const sourceMatches = task.source_commit === 'LATEST'
+              ? gitValue(target, ['rev-parse', `${result.source_commit}^{commit}`]) === result.source_commit
+                && spawnSync('git', ['-C', target, 'merge-base', '--is-ancestor', result.source_commit, task.source_branch]).status === 0
+              : result.source_commit === task.source_commit;
+            if (result.task_id !== task.id || result.result_path !== task.result_contract || !sourceMatches) {
+              report.state = 'INVALID';
+            } else {
+              report.state = result.status === 'BLOCKED' ? 'BLOCKED' : 'RESULT_READY';
+              report.observed_result_commit = gitValue(target, ['log', '-1', '--format=%H', '--', task.result_contract]);
+            }
           } catch {
             report.state = 'INVALID';
           }
@@ -595,6 +606,11 @@ function uninstall(targetArg) {
   const files = manifest.generated_files.map(ensureRelativeSafe);
   if (!files.includes(manifestRelativePath)) files.push(manifestRelativePath);
 
+  const allowedDirs = new Set([...managedAllowlist].flatMap(parentDirectories));
+  const dirs = Array.isArray(manifest.generated_dirs) ? manifest.generated_dirs.map(ensureRelativeSafe) : [];
+  const unexpectedDirs = dirs.filter((rel) => !allowedDirs.has(rel));
+  if (unexpectedDirs.length) fail(`installation manifest contains unmanaged directories:\n- ${unexpectedDirs.join('\n- ')}`);
+
   const ordered = files.filter((rel) => rel !== manifestRelativePath);
   ordered.push(manifestRelativePath);
   for (const rel of ordered) {
@@ -602,10 +618,6 @@ function uninstall(targetArg) {
     if (fs.existsSync(absolute) && fs.statSync(absolute).isFile()) fs.unlinkSync(absolute);
   }
 
-  const allowedDirs = new Set([...managedAllowlist].flatMap(parentDirectories));
-  const dirs = Array.isArray(manifest.generated_dirs) ? manifest.generated_dirs.map(ensureRelativeSafe) : [];
-  const unexpectedDirs = dirs.filter((rel) => !allowedDirs.has(rel));
-  if (unexpectedDirs.length) fail(`installation manifest contains unmanaged directories:\n- ${unexpectedDirs.join('\n- ')}`);
   dirs.sort((a, b) => b.split('/').length - a.split('/').length);
   for (const rel of dirs) {
     const absolute = managedAbsolute(target, rel);
