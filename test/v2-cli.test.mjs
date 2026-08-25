@@ -167,12 +167,19 @@ test('CLI manages persistent sources and returns a workflow watch snapshot', (t)
   assert.equal(added.status, 0, added.stderr);
   assert.equal(JSON.parse(added.stdout).source.source_id, 'contracts');
 
+  const github = run([
+    'source', 'add-github', 'github-main', '--secret-env', 'GITHUB_WEBHOOK_SECRET',
+    '--db', database, '--json'
+  ]);
+  assert.equal(github.status, 0, github.stderr);
+  assert.deepEqual(JSON.parse(github.stdout).source.secret_env, { webhook: 'GITHUB_WEBHOOK_SECRET' });
+
   const disabled = run(['source', 'disable', 'contracts', '--db', database, '--json']);
   assert.equal(disabled.status, 0, disabled.stderr);
   assert.equal(JSON.parse(disabled.stdout).source.enabled, false);
   const listed = run(['source', 'list', '--db', database, '--json']);
   assert.equal(listed.status, 0, listed.stderr);
-  assert.equal(JSON.parse(listed.stdout).sources.length, 1);
+  assert.equal(JSON.parse(listed.stdout).sources.length, 2);
 
   const store = new SQLiteRuntimeStore(database);
   store.saveWorkflow({ run_id: 'W-watch-cli', objective: 'Observe me', state: 'RUNNING' });
