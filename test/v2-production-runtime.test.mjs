@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { DEFAULT_PRIMARY_CAPABILITIES, createRuntimeJobHandler } from '../lib/runtime/production-runtime.mjs';
+import {
+  DEFAULT_PRIMARY_CAPABILITIES,
+  createProductionRoute,
+  createRuntimeJobHandler
+} from '../lib/runtime/production-runtime.mjs';
 import { computeCapabilityGap } from '../lib/workflow/capability-gap.mjs';
 import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
 
@@ -53,4 +57,19 @@ test('production job handler persists approval denial without invoking an execut
 test('production primary owns reasoning so the example delegates only executable capabilities', () => {
   const required = ['reasoning', 'local.shell', 'local.test'];
   assert.deepEqual(computeCapabilityGap(required, DEFAULT_PRIMARY_CAPABILITIES), ['local.shell', 'local.test']);
+});
+
+test('production control route idempotently converts observed tasks into durable jobs', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  const route = createProductionRoute(store, { workspaceRoot: 'C:/repo' });
+  const event = {
+    event_id: 'E-route', workflow_run_id: 'W-route', type: 'task.created',
+    payload: { path: 'C:/repo/docs/task.json' }
+  };
+  await route(event);
+  await route(event);
+  const jobs = store.listJobs({ status: 'PENDING' });
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].payload.workspace_root, path.resolve('C:/repo'));
 });
