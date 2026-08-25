@@ -73,3 +73,40 @@ test('production control route idempotently converts observed tasks into durable
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0].payload.workspace_root, path.resolve('C:/repo'));
 });
+
+test('reclaimed task job never repeats a completed workflow or uncertain side effects', async (t) => {
+  const temporary = mkdtempSync(path.join(tmpdir(), 'gpt-relay-recovery-'));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const file = path.join(temporary, 'task.json');
+  writeFileSync(file, JSON.stringify({ id: 'T-recovery' }));
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  let runs = 0;
+  const handler = createRuntimeJobHandler({
+    store,
+    cwd: temporary,
+    daemon: {
+      async run() { runs += 1; return { state: 'COMPLETED' }; },
+      async resume() { throw new Error('unexpected resume'); }
+    }
+  });
+  const job = {
+    job_id: 'J-recovered', type: 'task.created', attempts: 2,
+    workflow_run_id: 'W-recovered', payload: { path: file, workspace_root: temporary }
+  };
+
+  store.saveWorkflow({
+    run_id: 'W-recovered', task_id: 'T-recovery', objective: 'done', state: 'COMPLETED',
+    checkpoint: { attempt_count: 1 }
+  });
+  assert.equal((await handler(job)).state, 'COMPLETED');
+  assert.equal(runs, 0);
+
+  store.saveWorkflow({
+    run_id: 'W-recovered', task_id: 'T-recovery', objective: 'uncertain', state: 'RUNNING',
+    checkpoint: { attempt_count: 1 }
+  });
+  assert.equal((await handler(job)).state, 'PAUSED');
+  assert.equal(runs, 0);
+  assert.equal(store.listAttention({ openOnly: true })[0].type, 'RECOVERY');
+});
