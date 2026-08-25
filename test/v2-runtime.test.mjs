@@ -21,6 +21,7 @@ function withStore(t) {
 
 test('SQLite runtime state survives a close and reopen', (t) => {
   const { store, database } = withStore(t);
+  assert.equal(store.busyTimeoutMs(), 5_000);
   store.saveWorkflow({ run_id: 'W-1', objective: 'Ship relay', state: 'RUNNING' });
   store.saveAttempt({
     attempt_id: 'A-1',
