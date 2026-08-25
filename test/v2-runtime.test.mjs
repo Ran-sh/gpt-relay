@@ -93,7 +93,7 @@ test('normalizer maps provider events to canonical control and trace lanes', () 
   }, context);
   assert.equal(completed.type, 'executor.completed');
   assert.equal(completed.lane, 'control');
-  assert.match(completed.idempotency_key, /codex:S-1:native-3/);
+  assert.match(completed.idempotency_key, /codex:W-1:A-1:4:S-1:native-3/);
 });
 
 test('id-less executor events remain distinct across attempts and generations', async (t) => {
@@ -142,6 +142,61 @@ test('failed control routing remains pending and is drained after restart', asyn
   assert.equal(calls, 2);
   assert.equal(store.listPendingControlEvents({ workflowRunId: 'W-route' }).length, 0);
   assert.equal((await restarted.accept(raw, context)).status, 'duplicate');
+});
+
+test('outbox drain stops at the first failure to preserve control order', async (t) => {
+  const { store } = withStore(t);
+  const storing = new RelayPipeline({ store, route: async () => { throw new Error('offline'); } });
+  const context = { workflow_run_id: 'W-order', attempt_id: 'A-1', source: 'codex', generation: 1 };
+  await assert.rejects(storing.accept({ id: 'first', type: 'turn.started' }, context));
+  await assert.rejects(storing.accept({ id: 'second', type: 'turn.completed' }, context));
+
+  const seen = [];
+  const restarted = new RelayPipeline({
+    store,
+    route: async (event) => {
+      seen.push(event.type);
+      if (event.type === 'executor.started') throw new Error('still offline');
+    }
+  });
+  assert.deepEqual(await restarted.drainPending({ workflowRunId: 'W-order' }), { routed: 0, failed: 1 });
+  assert.deepEqual(seen, ['executor.started']);
+  assert.equal(store.listPendingControlEvents({ workflowRunId: 'W-order' }).length, 2);
+});
+
+test('generation fence rejects future values and ignores conflicting raw identity', async (t) => {
+  const { store } = withStore(t);
+  store.saveSession({
+    session_id: 'S-fence', executor_id: 'codex', workspace_id: 'WS', task_id: 'T',
+    status: 'RUNNING', generation: 2
+  });
+  const pipeline = new RelayPipeline({ store });
+  const context = {
+    workflow_run_id: 'W-trusted', task_id: 'T', attempt_id: 'A-trusted',
+    source: 'codex', session_id: 'S-fence', generation: 2
+  };
+  const result = await pipeline.accept({
+    id: 'forged', type: 'turn.completed', workflow_run_id: 'W-forged',
+    attempt_id: 'A-forged', session_id: 'S-other', generation: 999
+  }, context);
+  assert.equal(result.status, 'routed');
+  assert.equal(result.event.workflow_run_id, 'W-trusted');
+  assert.equal(result.event.attempt_id, 'A-trusted');
+  assert.equal(result.event.session_id, 'S-fence');
+  assert.equal(result.event.generation, 2);
+
+  assert.equal((await pipeline.accept({ id: 'future', type: 'turn.completed' }, { ...context, generation: 3 })).status, 'stale');
+});
+
+test('idempotency collision never routes unpersisted in-memory content', async (t) => {
+  const { store } = withStore(t);
+  const routed = [];
+  const pipeline = new RelayPipeline({ store, route: async (event) => routed.push(event.payload.value) });
+  const context = { workflow_run_id: 'W-collision', attempt_id: 'A-1', source: 'codex', generation: 1 };
+  await pipeline.accept({ event_id: 'E-first', idempotency_key: 'same-key', type: 'turn.completed', payload: { value: 'persisted' } }, context);
+  const collision = await pipeline.accept({ event_id: 'E-second', idempotency_key: 'same-key', type: 'turn.completed', payload: { value: 'unpersisted' } }, context);
+  assert.equal(collision.status, 'collision');
+  assert.deepEqual(routed, ['persisted']);
 });
 
 test('redaction preserves boolean authorization policy while hiding credentials', () => {
