@@ -218,7 +218,7 @@ async function source(command, args) {
         source_id: sourceId,
         type: 'github',
         enabled: true,
-        config: {},
+        config: options.workflow ? { workflow_run_id: options.workflow } : {},
         secret_env: { webhook: options['secret-env'] }
       })
     }));
@@ -272,8 +272,10 @@ async function ingress(command, args) {
     },
     secretResolver: async (_sourceId, sourceConfig) => process.env[sourceConfig.secret_env?.webhook],
     sourceFactory: (sourceOptions) => new GitHubWebhookSource({ ...sourceOptions, store, pipeline }),
-    contextResolver: async (sourceId) => ({
-      workspace_id: options.workspace ?? 'default', source_id: sourceId
+    contextResolver: async (sourceId, sourceConfig) => ({
+      workspace_id: options.workspace ?? 'default',
+      workflow_run_id: sourceConfig.config?.workflow_run_id ?? null,
+      source_id: sourceId
     }),
     maxBytes: options['max-bytes'] ? Number(options['max-bytes']) : 1_000_000
   });
