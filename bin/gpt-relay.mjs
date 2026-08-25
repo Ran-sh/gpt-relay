@@ -6,6 +6,8 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { validateTaskVNext } from '../lib/contracts/v2.mjs';
+import { FileContractObserver } from '../lib/relay/observer.mjs';
+import { RelayPipeline } from '../lib/relay/pipeline.mjs';
 import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -119,6 +121,50 @@ function task(command, args) {
   if (!report.valid) process.exitCode = 1;
 }
 
+function operatorCommand(kind, command, args) {
+  const options = parseOptions(args, { flags: ['json'] });
+  const attentionId = options._[0];
+  if (!attentionId) fail(`${kind} ${command} requires an Attention id`);
+  const response = kind === 'human' ? options.text : options.reason ?? command;
+  if (!response) fail(`${kind} ${command} requires ${kind === 'human' ? '--text' : '--reason'} <value>`);
+  const responseType = kind === 'human'
+    ? 'human.replied'
+    : command === 'grant' ? 'approval.granted' : command === 'deny' ? 'approval.denied' : null;
+  if (!responseType) fail(`unknown approval command: ${command}`);
+  const report = withStore(options, (store) => {
+    const attention = store.getAttention(attentionId);
+    if (!attention) fail(`unknown Attention: ${attentionId}`);
+    const expectedType = kind === 'human' ? 'DECISION' : 'APPROVAL';
+    if (attention.type !== expectedType) fail(`Attention ${attentionId} is ${attention.type}, expected ${expectedType}`);
+    return {
+      attention: store.respondToAttention({
+        attentionId,
+        response,
+        responseType,
+        idempotencyKey: options['idempotency-key']
+      })
+    };
+  });
+  print(report, options.json, (value) => `${value.attention.attention_id} ${value.attention.status}`);
+}
+
+async function source(command, args) {
+  if (command !== 'scan-file') fail(`unknown source command: ${command ?? '(missing)'}`);
+  const options = parseOptions(args, { flags: ['json'] });
+  const file = options._[0];
+  if (!file) fail('source scan-file requires a task contract file');
+  const store = new SQLiteRuntimeStore(databasePath(options));
+  try {
+    const pipeline = new RelayPipeline({ store });
+    const observer = new FileContractObserver({ store, pipeline });
+    const result = await observer.scanOnce(path.resolve(file));
+    const report = result ?? { status: 'unchanged', event: null };
+    print(report, options.json, (value) => value.event ? `${value.status} ${value.event.type}` : value.status);
+  } finally {
+    store.close();
+  }
+}
+
 function help() {
   console.log(`gpt-relay
 
@@ -127,6 +173,9 @@ Usage:
   gpt-relay runtime status [--db <file>] [--json]
   gpt-relay runtime attention [--db <file>] [--json]
   gpt-relay runtime events --workflow <id> [--db <file>] [--control-only] [--limit <n>] [--json]
+  gpt-relay human reply <attention-id> --text <value> [--db <file>] [--json]
+  gpt-relay approval grant|deny <attention-id> [--reason <value>] [--db <file>] [--json]
+  gpt-relay source scan-file <task.json> [--db <file>] [--json]
   gpt-relay task validate-vnext <file> [--json]
   gpt-relay --version
 
@@ -140,6 +189,12 @@ if (args[0] === '--version' || args[0] === '-v') {
   runtime(args[1], args.slice(2));
 } else if (args[0] === 'task') {
   task(args[1], args.slice(2));
+} else if (args[0] === 'human') {
+  operatorCommand('human', args[1], args.slice(2));
+} else if (args[0] === 'approval') {
+  operatorCommand('approval', args[1], args.slice(2));
+} else if (args[0] === 'source') {
+  await source(args[1], args.slice(2));
 } else if (['help', '--help', '-h', undefined].includes(args[0])) {
   help();
 } else {

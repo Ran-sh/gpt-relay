@@ -125,7 +125,7 @@ test('CLI resolves human and approval Attention idempotently and scans a task so
   assert.equal(JSON.parse(observed.stdout).event.type, 'task.created');
 
   const reopened = new SQLiteRuntimeStore(database);
-  t.after(() => reopened.close());
   assert.equal(reopened.listJobs({ status: 'PENDING' }).length, 2);
   assert.equal(reopened.listEvents({ workflowRunId: 'W-T-104' }).length, 1);
+  reopened.close();
 });
