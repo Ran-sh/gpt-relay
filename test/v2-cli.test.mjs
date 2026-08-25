@@ -154,3 +154,30 @@ test('CLI exposes executor doctor and guards production service configuration', 
   assert.equal(service.status, 1);
   assert.match(service.stderr, /OPENAI_API_KEY/);
 });
+
+test('CLI manages persistent sources and returns a workflow watch snapshot', (t) => {
+  const temporary = mkdtempSync(path.join(tmpdir(), 'gpt-relay-source-cli-'));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const database = path.join(temporary, 'relay.sqlite');
+  const contract = path.join(temporary, 'task.json');
+
+  const added = run([
+    'source', 'add-file', 'contracts', contract, '--db', database, '--json'
+  ]);
+  assert.equal(added.status, 0, added.stderr);
+  assert.equal(JSON.parse(added.stdout).source.source_id, 'contracts');
+
+  const disabled = run(['source', 'disable', 'contracts', '--db', database, '--json']);
+  assert.equal(disabled.status, 0, disabled.stderr);
+  assert.equal(JSON.parse(disabled.stdout).source.enabled, false);
+  const listed = run(['source', 'list', '--db', database, '--json']);
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.equal(JSON.parse(listed.stdout).sources.length, 1);
+
+  const store = new SQLiteRuntimeStore(database);
+  store.saveWorkflow({ run_id: 'W-watch-cli', objective: 'Observe me', state: 'RUNNING' });
+  store.close();
+  const watched = run(['watch', 'W-watch-cli', '--db', database, '--json']);
+  assert.equal(watched.status, 0, watched.stderr);
+  assert.equal(JSON.parse(watched.stdout).workflow.run_id, 'W-watch-cli');
+});
