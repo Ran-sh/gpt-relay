@@ -16,6 +16,7 @@ test('durable jobs are idempotent, claimable, and recoverable after a worker cra
   assert.equal(store.claimJob('J-1', 'worker-a').status, 'RUNNING');
   assert.equal(store.requeueRunningJobs('worker-a'), 1);
   assert.equal(store.listJobs({ status: 'PENDING' })[0].job_id, 'J-1');
+  assert.equal(store.claimJob('J-1', 'worker-b').owner_id, 'worker-b');
   store.completeJob('J-1', { accepted: true });
   assert.equal(store.getJob('J-1').status, 'COMPLETED');
 });
