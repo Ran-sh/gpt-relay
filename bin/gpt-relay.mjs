@@ -6,8 +6,19 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { validateTaskVNext } from '../lib/contracts/v2.mjs';
+import { runCodexSmoke } from '../lib/doctor/codex-smoke.mjs';
+import { ClaudeAdapter } from '../lib/executors/claude.mjs';
+import { CodexAdapter } from '../lib/executors/codex.mjs';
+import { ExecutorRegistry } from '../lib/executors/registry.mjs';
+import { AuditedDecisionRunner } from '../lib/orchestrator/audited-decision-runner.mjs';
+import { OpenAIDecisionProvider } from '../lib/orchestrator/openai-decision-provider.mjs';
 import { FileContractObserver } from '../lib/relay/observer.mjs';
 import { RelayPipeline } from '../lib/relay/pipeline.mjs';
+import { WorkflowDaemon } from '../lib/runtime/daemon.mjs';
+import { ProcessSupervisor } from '../lib/runtime/process-supervisor.mjs';
+import { createRuntimeJobHandler } from '../lib/runtime/production-runtime.mjs';
+import { RuntimeService } from '../lib/runtime/service.mjs';
+import { SessionRegistry } from '../lib/runtime/session-registry.mjs';
 import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -176,6 +187,70 @@ async function source(command, args) {
   }
 }
 
+async function doctor(command, args) {
+  if (command !== 'codex') fail(`unknown doctor command: ${command ?? '(missing)'}`);
+  const options = parseOptions(args, { flags: ['json', 'live'] });
+  const adapter = new CodexAdapter({
+    cli: options.cli ?? 'codex',
+    cliArgs: options['cli-arg'] ? [options['cli-arg']] : []
+  });
+  const report = await runCodexSmoke({
+    adapter,
+    live: options.live === true,
+    timeoutMs: options.timeout ? Number(options.timeout) : 30_000
+  });
+  print(report, options.json, (value) => value.ready
+    ? `Codex ready${value.version ? ` (${value.version})` : ''}${value.live ? ' — live smoke passed' : ''}`
+    : `Codex unavailable: ${value.reason ?? 'unknown reason'}`);
+  if (!report.ready) process.exitCode = 1;
+}
+
+async function service(command, args) {
+  if (!['once', 'start'].includes(command)) fail(`unknown service command: ${command ?? '(missing)'}`);
+  const options = parseOptions(args, { flags: ['json'] });
+  if (!process.env.OPENAI_API_KEY) fail('service requires OPENAI_API_KEY for audited workflow decisions');
+  const store = new SQLiteRuntimeStore(databasePath(options));
+  const sessions = new SessionRegistry(store);
+  const supervisor = new ProcessSupervisor({ sessions });
+  const registry = new ExecutorRegistry();
+  registry.register(new CodexAdapter(), { priority: 100 });
+  registry.register(new ClaudeAdapter(), { priority: 90 });
+  const provider = new OpenAIDecisionProvider({
+    apiKey: process.env.OPENAI_API_KEY,
+    model: options.model ?? process.env.GPT_RELAY_DECISION_MODEL ?? 'gpt-5.6'
+  });
+  const daemon = new WorkflowDaemon({
+    store,
+    registry,
+    decisionRunner: new AuditedDecisionRunner({ store, provider }),
+    processSupervisor: supervisor
+  });
+  const pipeline = new RelayPipeline({ store });
+  const runtime = new RuntimeService({
+    store,
+    pipeline,
+    processSupervisor: supervisor,
+    onJob: createRuntimeJobHandler({ store, daemon })
+  });
+  const abort = new AbortController();
+  const stop = () => abort.abort();
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+  try {
+    if (command === 'once') {
+      const report = await runtime.runOnce();
+      print(report, options.json, (value) => `jobs completed=${value.jobs_completed} failed=${value.jobs_failed}`);
+    } else {
+      await runtime.start({ signal: abort.signal, pollMs: options.poll ? Number(options.poll) : 1_000 });
+    }
+  } finally {
+    runtime.close();
+    store.close();
+    process.removeListener('SIGINT', stop);
+    process.removeListener('SIGTERM', stop);
+  }
+}
+
 function help() {
   console.log(`gpt-relay
 
@@ -187,6 +262,8 @@ Usage:
   gpt-relay human reply <attention-id> --text <value> [--db <file>] [--json]
   gpt-relay approval grant|deny <attention-id> [--reason <value>] [--db <file>] [--json]
   gpt-relay source scan-file <task.json> [--db <file>] [--json]
+  gpt-relay doctor codex [--live] [--cli <file>] [--cli-arg <value>] [--json]
+  gpt-relay service once|start [--db <file>] [--model <id>] [--poll <ms>] [--json]
   gpt-relay task validate-vnext <file> [--json]
   gpt-relay --version
 
@@ -206,6 +283,10 @@ if (args[0] === '--version' || args[0] === '-v') {
   operatorCommand('approval', args[1], args.slice(2));
 } else if (args[0] === 'source') {
   await source(args[1], args.slice(2));
+} else if (args[0] === 'doctor') {
+  await doctor(args[1], args.slice(2));
+} else if (args[0] === 'service') {
+  await service(args[1], args.slice(2));
 } else if (['help', '--help', '-h', undefined].includes(args[0])) {
   help();
 } else {
