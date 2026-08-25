@@ -1,144 +1,128 @@
-# ChatGPT Workflow
+# GPT Relay
 
-**让 ChatGPT 负责任务编排，让 Codex 等能力完整的 Agent 直接完成代码、测试、浏览器、Git/GitHub 与真实环境工作。**
+GPT-first autonomous relay and durable workflow control plane.
 
-Current version: **1.9.0**
+GPT Relay keeps the primary GPT in charge of reasoning, planning, review, and acceptance. It delegates only a concrete capability gap to a compatible executor, persists the executor evidence, and automatically returns a bounded result packet for the next decision.
 
-## 工作流
+Current version: **2.0.0 foundation**
 
-```text
-你提出需求
-   ↓
-ChatGPT / Codex 分析当前可用能力并直接完成可执行工作
-   ↓
-遇到必须在真实电脑 / 环境里完成的工作
-   ↓
-ChatGPT 写入 docs/agent-tasks/ACTIVE_TASK.json
-   ↓
-你给 Codex 等执行器一句话
-   ↓
-执行器完成本地工作并提交 Result Contract
-   ↓
-ChatGPT 检查 GitHub，继续下一步
-```
+## What changed from Agent Workflow
 
-核心原则只有四个：
+`Ran-sh/chatgpt_workflow` v1.9 is retained as the compatible contract and installation layer. GPT Relay adds the runtime that the original repository intentionally did not have:
 
-- **ChatGPT 负责编排；Codex 不被限制为只测试或只做本地工作。**
-- **GitHub 保存任务和结果。**
-- **按缺失能力交接，不按 Agent 名称分工。**
-- **BLOCKED 保留任务与证据，可恢复续跑。**
+- SQLite-backed workflows, attempts, sessions, events, cursors, Attention, and artifacts;
+- deterministic capability-gap matching, separate from authorization;
+- canonical control-plane events with durable idempotency;
+- trace/control lanes so tool progress does not wake GPT on every line;
+- bounded state packets and typed decisions;
+- same-session `FOLLOW_UP`, new-attempt `RETRY`, and validated `COMPLETE`;
+- a Codex JSONL adapter with structured-terminal and resume identity checks;
+- a runtime status / Attention / events CLI.
 
-## 一句话执行
+The legacy `agent-workflow` command remains available.
 
-推荐给执行器的提示词：
+## Core loop
 
 ```text
-拉取 <owner/repo> 的 <branch> 最新代码，读取 docs/agent-workflow.md，并执行 docs/agent-tasks/ACTIVE_TASK.json；完成后按协议提交结果。
+objective
+  -> required capabilities
+  -> primary GPT capabilities
+  -> concrete gap only
+  -> deterministic executor match
+  -> minimal delegated scope
+  -> canonical events + evidence
+  -> bounded GPT decision packet
+  -> FOLLOW_UP / RETRY / COMPLETE / Attention
 ```
 
-如果执行器已经打开目标仓库，可以更短：
+The runtime will not start an executor when the capability gap is empty. Capability says what an executor can do; Authorization says what this task allows it to do. They are never merged.
 
-```text
-拉取目标分支最新代码并执行 docs/agent-tasks/ACTIVE_TASK.json，按 Agent Workflow Protocol 完成即可。
-```
+## Information-flow guarantees
 
-任务细节不写进提示词。真正的任务来源只有：
+The relay uses two lanes:
 
-```text
-docs/agent-tasks/ACTIVE_TASK.json
-```
+- `trace`: tool activity, streaming output, and progress. Stored for inspection, never a decision trigger by itself.
+- `control`: state changes, terminal events, validated results, approvals, human replies, and capability changes.
 
-## ChatGPT 什么时候交给 Executor
+Every canonical event is persisted before routing. Duplicate native events share an idempotency key and are consumed once. Each executor session has a monotonic generation; events from an older generation are rejected. Oversized payloads become `artifact://` references, and credential-shaped data is redacted before persistence or GPT context construction.
 
-只有 GitHub 本身无法完成时才交接，例如：
+See [docs/information-flow.md](docs/information-flow.md).
 
-- 本地 build / test / benchmark
-- 真实应用、插件、浏览器、设备、GPU
-- 本地文件或工作区状态
-- 登录账号、凭据、签名、发布工具
-- 真实运行环境才能确认的行为
+## Requirements
 
-能通过 GitHub 完成的修改，ChatGPT 直接做，不绕一圈交给 Executor。
+- Node.js 24 or newer (`node:sqlite` is used by the durable runtime)
+- Git for legacy Task / Result handoffs
+- Codex CLI only for real Codex execution; all core tests use protocol fixtures and do not call a model
 
-## 安装
-
-新项目，Node.js 20+：
+## Quick start
 
 ```bash
-npm exec --yes --package=github:Ran-sh/chatgpt_workflow -- agent-workflow install .
+npm test
+node bin/gpt-relay.mjs runtime init --db .gpt-relay/runtime.sqlite
+node bin/gpt-relay.mjs runtime status --db .gpt-relay/runtime.sqlite
+node bin/gpt-relay.mjs task validate-vnext examples/contracts/task-contract-vnext.example.json
 ```
 
-已有工作流文件的项目，可让任意 coding agent 执行：
-
-```text
-Install the latest stable workflow from `Ran-sh/chatgpt_workflow` into this repository, following `install/ONE_COMMAND_INSTALL_PROMPT.md` exactly.
-```
-
-安装不会创建 ACTIVE task。
-
-## Task / Result
-
-支持三种任务模式：
-
-- `IMPLEMENT`
-- `TEST_ONLY`
-- `REVIEW_ONLY`
-
-Result Contract v2 记录秒级、带时区的执行时间线。最终结果必须由 validator 自己盖章：
+Inspect open Attention and recent control events:
 
 ```bash
-node .agent-workflow/validator/validate-contract.mjs result <result-file> --stamp
+node bin/gpt-relay.mjs runtime attention --db .gpt-relay/runtime.sqlite
+node bin/gpt-relay.mjs runtime events --db .gpt-relay/runtime.sqlite --workflow <workflow-run-id> --control-only
 ```
 
-`--stamp` 成功后会写入 `result_validation` 的 PASS、验证时间、命令和证据；历史 v1 Result 仍可继续验证，无需重写。
+The programmatic runtime is composed from `WorkflowDaemon`, `SQLiteRuntimeStore`, `RelayPipeline`, `ExecutorRegistry`, an executor adapter, and a typed decision runner.
 
-普通验证：
+## Compatibility command
+
+Existing installations and repositories can keep using:
 
 ```bash
-agent-workflow validate task docs/agent-tasks/ACTIVE_TASK.json
-agent-workflow validate result <result-file>
+node bin/agent-workflow.mjs install <target>
+node bin/agent-workflow.mjs task create ...
+node bin/agent-workflow.mjs validate task <file>
+node bin/agent-workflow.mjs validate result <file>
+node bin/agent-workflow.mjs task resume --target <target>
 ```
 
-执行前预检和完成前联合校验：
+Task Contract vNext fields are additive. Legacy v1.9 contracts still validate unchanged.
 
-```bash
-agent-workflow doctor --target . --json
-agent-workflow validate handoff --task docs/agent-tasks/ACTIVE_TASK.json --result <result-file> --target .
-```
+## Project status
 
-阻塞后不要删除 ACTIVE task：
+Implemented in the v2.0 foundation:
 
-```bash
-agent-workflow status --target . --json
-agent-workflow task resume --target .
-```
+- contracts, authorization, capability gap, state transitions;
+- durable event / attempt / session / Attention storage;
+- event normalization, redaction, dedupe, generation fencing, artifact spill;
+- FakeExecutor and deterministic registry;
+- Codex non-interactive JSONL adapter;
+- bounded state packet and automatic follow-up loop;
+- runtime query CLI and vNext validation.
 
-`result_commit: null` 是正常值；包含最终 Result 的提交由 Git 历史读取，避免结果文件自引用。
+Next milestones are long-running service packaging, production GPT decision integration, ZCode/Claude adapters, external GitHub/webhook sources, and only later parallel barriers or a watch GUI. See [docs/roadmap.md](docs/roadmap.md).
 
-卸载：
+## Reference projects
 
-```bash
-agent-workflow uninstall .
-```
+The implementation was informed by:
 
-## 关键文件
+- [`Ran-sh/chatgpt_workflow`](https://github.com/Ran-sh/chatgpt_workflow), the imported v1.9 contract/install baseline;
+- [`milind-soni/OpenMausBot`](https://github.com/milind-soni/OpenMausBot), especially its driver registry, normalized event bus, permission events, process ownership, fixture drivers, and bounded context work;
+- the historical `dsh-vision` and `dsh-crew` evidence already documented by the source project.
 
-```text
-docs/agent-workflow.md                 执行协议
-docs/agent-tasks/ACTIVE_TASK.json      当前任务
-docs/agent-results/                    执行结果
-schema/                                Task / Result Schema
-validator/                             Contract Validator
-bin/agent-workflow.mjs                 CLI
-```
+The attachment named the project `OpenMausBoth`; the public repository is `OpenMausBot`. GPT Relay does not copy its desktop UI or source files. The borrowed ideas are documented in [docs/reference-projects.md](docs/reference-projects.md).
 
-详细设计见：
+## Safety invariants
 
-- `protocol/orchestrator-executor-boundary.md`
-- `protocol/local-execution-handoff.md`
-- `protocol/capability-delegation.md`
-- `protocol/reference-project-findings.md`
-- `install/EXECUTE_TASK_PROMPT.md`
+- No capability gap means no executor dispatch.
+- Delegated capabilities and writable paths cannot exceed the parent Task Contract.
+- A false Authorization flag cannot be overridden by executor readiness.
+- Raw progress never directly triggers a GPT decision turn.
+- A duplicate event cannot create a duplicate action proposal.
+- A stale session generation cannot mutate the active attempt.
+- Exit code zero without a structured terminal event is failure.
+- A resumed Codex thread must return the expected thread ID.
+- `COMPLETE` requires a validated PASS result and satisfied acceptance criteria.
+- Secrets and session references do not enter bounded GPT packets.
 
-Reference projects: `Ran-sh/dsh-vision`, `Ran-sh/dsh-crew`.
+## License and attribution
+
+This repository preserves the history of `Ran-sh/chatgpt_workflow`. OpenMausBot was reviewed as an Apache-2.0 reference; no OpenMausBot source file was copied into this implementation.

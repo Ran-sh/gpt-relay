@@ -1,0 +1,19 @@
+# GPT Relay architecture
+
+The primary GPT owns the objective, capability analysis, repository-side work, evidence review, and final acceptance. The relay owns observation, normalization, persistence, deduplication, classification, and routing. The daemon owns durable state, attempts, sessions, process reconciliation, and loop budgets. Executors own only the delegated capability gap.
+
+`WorkflowDaemon` computes the capability gap, selects an executor through `ExecutorRegistry`, creates immutable attempts, collects normalized events, validates results, builds a bounded packet, and executes a typed decision.
+
+`RelayPipeline` normalizes provider events and writes them to `SQLiteRuntimeStore` before any router runs. Trace events stop there. Control events may reach the scheduler, state machine, Attention, or decision runner.
+
+`SQLiteRuntimeStore` is the runtime truth for workflow runs, attempts, sessions, events, cursors, Attention, and artifact metadata. Git remains the durable, portable ledger for Task / Result Contracts and auditable evidence.
+
+`CodexAdapter` uses the non-interactive JSONL protocol. It treats a structured terminal event plus process exit as evidence; neither one is sufficient alone. Resume checks that the returned Codex thread ID equals the requested session.
+
+Supported workflow states are `RUNNING`, `WAITING_FOR_EXECUTOR`, `WAITING_FOR_CAPABILITY`, `WAITING_FOR_APPROVAL`, `WAITING_FOR_HUMAN`, `VERIFYING`, `PAUSED`, `COMPLETED`, `FAILED`, and `CANCELLED`.
+
+Every execution creates an immutable attempt. A same-task follow-up can reuse the provider session, but it receives a new attempt and a new monotonic session generation. Cross-task session reuse is forbidden.
+
+Core code depends on readiness, capabilities, start, optional resume, events, cancel, and result collection. Provider CLI flags and native messages stay in the adapter. A new executor should be registered without changing the state machine or scheduler.
+
+Each workflow has attempt and action budgets. Repeated failure ends in Attention rather than an unbounded retry loop. Unknown decisions, events, and authorization actions fail closed.

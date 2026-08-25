@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.0.0
+
+- Renamed the primary package and command to GPT Relay while retaining the legacy `agent-workflow` CLI.
+- Added capability-gap delegation with separately enforced Authorization and bounded Delegated Scope Contracts.
+- Added a durable SQLite runtime for workflows, immutable attempts, executor sessions, canonical events, cursors, Attention, and artifacts.
+- Added trace/control event lanes, persist-before-route ordering, idempotent delivery, secret redaction, artifact spill, and generation fencing.
+- Added an executor registry, FakeExecutor scenarios, and a Codex JSONL adapter with structured-terminal and resume-session validation.
+- Added bounded state packets, typed decisions, validated completion gates, and same-session automatic follow-up.
+- Added runtime status, Attention, event inspection, and vNext Task validation commands.
+- Documented the OpenMausBot assessment and agent information-flow optimization.
+
 ## 1.9.0
 
 - Changed delegation from agent-name roles to capability-based execution; Codex may directly perform repository, implementation, test, browser, Git, GitHub, and real-environment work when available and authorized.
