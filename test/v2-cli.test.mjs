@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -188,4 +188,29 @@ test('CLI manages persistent sources and returns a workflow watch snapshot', (t)
   const watched = run(['watch', 'W-watch-cli', '--db', database, '--json']);
   assert.equal(watched.status, 0, watched.stderr);
   assert.equal(JSON.parse(watched.stdout).workflow.run_id, 'W-watch-cli');
+});
+
+test('CLI resolves fail-closed Workspace, Workflow, and Task configuration layers', (t) => {
+  const temporary = mkdtempSync(path.join(tmpdir(), 'gpt-relay-config-cli-'));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const workspace = path.join(temporary, 'workspace.json');
+  const workflow = path.join(temporary, 'workflow.json');
+  const taskConfig = path.join(temporary, 'task.json');
+  writeFileSync(workspace, JSON.stringify({
+    authorization: { shell: true, network: false }, budget: { tokens: 1000 }, allowed_changes: ['src/**']
+  }));
+  writeFileSync(workflow, JSON.stringify({
+    authorization: { shell: false }, budget: { tokens: 800 }, allowed_changes: ['src/feature/**']
+  }));
+  writeFileSync(taskConfig, JSON.stringify({ budget: { tokens: 500 }, allowed_changes: ['src/feature/file.mjs'] }));
+
+  const resolved = run([
+    'config', 'resolve', workspace, '--workflow', workflow, '--task', taskConfig, '--json'
+  ]);
+  assert.equal(resolved.status, 0, resolved.stderr);
+  const effective = JSON.parse(resolved.stdout).effective;
+  assert.equal(effective.authorization.shell, false);
+  assert.equal(effective.authorization.network, false);
+  assert.equal(effective.budget.tokens, 500);
+  assert.deepEqual(effective.allowed_changes, ['src/feature/file.mjs']);
 });
