@@ -56,6 +56,7 @@ test('SQLite runtime state survives a close and reopen', (t) => {
   assert.equal(reopened.getSession('S-1').generation, 3);
   assert.equal(reopened.getCursor('codex:S-1'), 'cursor-42');
   assert.equal(reopened.listAttention({ openOnly: true })[0].attention_id, 'ATT-1');
+  reopened.close();
 });
 
 test('normalizer maps provider events to canonical control and trace lanes', () => {
