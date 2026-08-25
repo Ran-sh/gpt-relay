@@ -89,6 +89,17 @@ test('vNext task validation rejects delegated scope expansion', () => {
   assert.match(validateTaskVNext(overlappingPath).join('\n'), /overlaps forbidden path src\/\*\*/);
 });
 
+test('vNext task validation rejects Result Contracts outside the managed evidence directory', () => {
+  assert.match(
+    validateTaskVNext(task({ result_contract: '../outside.json' })).join('\n'),
+    /result_contract.*docs\/agent-results/i
+  );
+  assert.equal(
+    validateTaskVNext(task({ result_contract: 'docs/agent-results/T-104.json' })).length,
+    0
+  );
+});
+
 test('workflow state requires validated evidence before completion', () => {
   let state = 'RUNNING';
   state = transitionWorkflow(state, { type: 'task.delegated', payload: { executor_ready: true } });
