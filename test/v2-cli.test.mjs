@@ -214,3 +214,21 @@ test('CLI resolves fail-closed Workspace, Workflow, and Task configuration layer
   assert.equal(effective.budget.tokens, 500);
   assert.deepEqual(effective.allowed_changes, ['src/feature/file.mjs']);
 });
+
+test('CLI persists scheduled Task routines for the production host', (t) => {
+  const temporary = mkdtempSync(path.join(tmpdir(), 'gpt-relay-schedule-cli-'));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const database = path.join(temporary, 'relay.sqlite');
+  const taskFile = path.join(temporary, 'task.json');
+  writeFileSync(taskFile, JSON.stringify({ id: 'T-nightly', objective: 'Nightly verification' }));
+
+  const added = run([
+    'schedule', 'add', 'nightly', '--every-ms', '60000', '--task', taskFile,
+    '--db', database, '--json'
+  ]);
+  assert.equal(added.status, 0, added.stderr);
+  assert.equal(JSON.parse(added.stdout).schedule.schedule_id, 'nightly');
+  const listed = run(['schedule', 'list', '--db', database, '--json']);
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.equal(JSON.parse(listed.stdout).schedules[0].task.id, 'T-nightly');
+});
