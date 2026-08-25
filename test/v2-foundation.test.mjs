@@ -130,6 +130,22 @@ test('scheduler wakes only on control-plane events and consumes each event once'
     event_id: 'E-2'
   });
   assert.equal(scheduler.propose(completed), null);
+
+  assert.deepEqual(scheduler.propose({ event_id: 'E-task', type: 'task.created', payload: {} }), {
+    trigger: 'task_created', event_id: 'E-task'
+  });
+  assert.deepEqual(scheduler.propose({ event_id: 'E-approval', type: 'approval.granted', payload: {} }), {
+    trigger: 'approval_granted', event_id: 'E-approval'
+  });
+});
+
+test('human and approval commands transition only nonterminal workflows', () => {
+  assert.equal(transitionWorkflow('WAITING_FOR_APPROVAL', { type: 'approval.granted', payload: {} }), 'RUNNING');
+  assert.equal(transitionWorkflow('WAITING_FOR_APPROVAL', { type: 'approval.denied', payload: {} }), 'FAILED');
+  assert.equal(transitionWorkflow('WAITING_FOR_HUMAN', { type: 'human.replied', payload: {} }), 'RUNNING');
+  assert.equal(transitionWorkflow('RUNNING', { type: 'workflow.pause_requested', payload: {} }), 'PAUSED');
+  assert.equal(transitionWorkflow('PAUSED', { type: 'workflow.resume_requested', payload: {} }), 'RUNNING');
+  assert.equal(transitionWorkflow('VERIFYING', { type: 'workflow.cancel_requested', payload: {} }), 'CANCELLED');
 });
 
 test('FakeExecutor provides deterministic readiness, event, and result evidence', async () => {
