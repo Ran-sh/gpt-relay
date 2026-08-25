@@ -97,6 +97,10 @@ test('SourceRegistry constructs only enabled in-workspace file and git observers
   const store = new SQLiteRuntimeStore(':memory:');
   store.upsertSourceConfig({ source_id: 'file-1', type: 'file', enabled: true, config: { path: 'task.json' } });
   store.upsertSourceConfig({ source_id: 'git-1', type: 'git', enabled: true, config: { path: 'repo' } });
+  store.upsertSourceConfig({
+    source_id: 'github-1', type: 'github', enabled: true,
+    config: {}, secret_env: { webhook: 'GITHUB_WEBHOOK_SECRET' }
+  });
   store.upsertSourceConfig({ source_id: 'off', type: 'file', enabled: false, config: { path: 'ignored.json' } });
   const registry = new SourceRegistry({ store, pipeline: { accept() {} }, workspaceRoot: root });
   const sources = registry.buildEnabled();
