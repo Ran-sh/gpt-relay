@@ -109,4 +109,13 @@ test('reclaimed task job never repeats a completed workflow or uncertain side ef
   assert.equal((await handler(job)).state, 'PAUSED');
   assert.equal(runs, 0);
   assert.equal(store.listAttention({ openOnly: true })[0].type, 'RECOVERY');
+
+  store.saveWorkflow({
+    run_id: 'W-recovered', task_id: 'T-recovery', objective: 'done again', state: 'COMPLETED',
+    checkpoint: { attempt_count: 2 }
+  });
+  assert.equal((await handler({
+    job_id: 'J-human-recovered', type: 'human.replied', attempts: 2,
+    workflow_run_id: 'W-recovered', payload: { response: 'continue' }
+  })).state, 'COMPLETED');
 });
