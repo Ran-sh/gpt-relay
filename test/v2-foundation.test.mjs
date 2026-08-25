@@ -72,6 +72,21 @@ test('vNext task validation rejects delegated scope expansion', () => {
     }
   });
   assert.match(validateTaskVNext(expandedPath).join('\n'), /src\/\*\*.*outside task allowed_changes/);
+
+  const removedProhibition = task({
+    delegated_scope: { ...task().delegated_scope, forbidden_changes: ['secrets/**'] }
+  });
+  assert.match(validateTaskVNext(removedProhibition).join('\n'), /must preserve forbidden path src\/\*\*/);
+
+  const overlappingPath = task({
+    allowed_changes: ['src/**'],
+    delegated_scope: {
+      ...task().delegated_scope,
+      allowed_changes: ['src/config.json'],
+      forbidden_changes: ['src/**']
+    }
+  });
+  assert.match(validateTaskVNext(overlappingPath).join('\n'), /overlaps forbidden path src\/\*\*/);
 });
 
 test('workflow state requires validated evidence before completion', () => {

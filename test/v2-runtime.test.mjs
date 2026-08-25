@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { normalizeExecutorEvent } from '../lib/relay/events.mjs';
+import { normalizeExecutorEvent, redactSecrets } from '../lib/relay/events.mjs';
 import { RelayPipeline } from '../lib/relay/pipeline.mjs';
 import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
 
@@ -94,6 +94,47 @@ test('normalizer maps provider events to canonical control and trace lanes', () 
   assert.equal(completed.type, 'executor.completed');
   assert.equal(completed.lane, 'control');
   assert.match(completed.idempotency_key, /codex:S-1:native-3/);
+});
+
+test('id-less executor events remain distinct across attempts and generations', async (t) => {
+  const { store } = withStore(t);
+  const pipeline = new RelayPipeline({ store });
+  const raw = { type: 'turn.started', payload: { phase: 'execute' } };
+  const base = { workflow_run_id: 'W-generation', task_id: 'T-1', source: 'codex', session_id: 'S-1' };
+
+  assert.equal((await pipeline.accept(raw, { ...base, attempt_id: 'A-1', generation: 1 })).status, 'routed');
+  assert.equal((await pipeline.accept(raw, { ...base, attempt_id: 'A-2', generation: 2 })).status, 'routed');
+  assert.equal(store.listEvents({ workflowRunId: 'W-generation' }).length, 2);
+});
+
+test('failed control routing remains pending and is retried on replay', async (t) => {
+  const { store } = withStore(t);
+  let calls = 0;
+  const pipeline = new RelayPipeline({
+    store,
+    route: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('router unavailable');
+    }
+  });
+  const raw = { id: 'native-route', type: 'turn.completed', payload: { status: 'completed' } };
+  const context = { workflow_run_id: 'W-route', attempt_id: 'A-1', source: 'codex', session_id: 'S-1', generation: 1 };
+
+  await assert.rejects(pipeline.accept(raw, context), /router unavailable/);
+  assert.equal(store.listPendingControlEvents({ workflowRunId: 'W-route' }).length, 1);
+  assert.equal((await pipeline.accept(raw, context)).status, 'routed');
+  assert.equal(calls, 2);
+  assert.equal(store.listPendingControlEvents({ workflowRunId: 'W-route' }).length, 0);
+});
+
+test('redaction preserves boolean authorization policy while hiding credentials', () => {
+  assert.deepEqual(redactSecrets({
+    authorization: { shell: true, credentials: false },
+    api_key: 'sk-test-abcdefghijklmnopqrstuvwxyz'
+  }), {
+    authorization: { shell: true, credentials: false },
+    api_key: '[REDACTED]'
+  });
 });
 
 test('relay persists before routing, deduplicates, fences stale sessions, and keeps progress quiet', async (t) => {
