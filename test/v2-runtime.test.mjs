@@ -107,6 +107,18 @@ test('id-less executor events remain distinct across attempts and generations', 
   assert.equal(store.listEvents({ workflowRunId: 'W-generation' }).length, 2);
 });
 
+test('provider-native IDs are scoped to their workflow and attempt', async (t) => {
+  const { store } = withStore(t);
+  const pipeline = new RelayPipeline({ store });
+  const raw = { id: 'provider-local-1', type: 'turn.completed', payload: { status: 'completed' } };
+  const context = { task_id: 'T-1', attempt_id: 'A-1', source: 'provider', generation: 1 };
+
+  assert.equal((await pipeline.accept(raw, { ...context, workflow_run_id: 'W-native-1' })).status, 'routed');
+  assert.equal((await pipeline.accept(raw, { ...context, workflow_run_id: 'W-native-2' })).status, 'routed');
+  assert.equal(store.listEvents({ workflowRunId: 'W-native-1' }).length, 1);
+  assert.equal(store.listEvents({ workflowRunId: 'W-native-2' }).length, 1);
+});
+
 test('failed control routing remains pending and is drained after restart', async (t) => {
   const { store } = withStore(t);
   let calls = 0;
