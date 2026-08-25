@@ -16,7 +16,11 @@ import { FileContractObserver } from '../lib/relay/observer.mjs';
 import { RelayPipeline } from '../lib/relay/pipeline.mjs';
 import { WorkflowDaemon } from '../lib/runtime/daemon.mjs';
 import { ProcessSupervisor } from '../lib/runtime/process-supervisor.mjs';
-import { DEFAULT_PRIMARY_CAPABILITIES, createRuntimeJobHandler } from '../lib/runtime/production-runtime.mjs';
+import {
+  DEFAULT_PRIMARY_CAPABILITIES,
+  createProductionRoute,
+  createRuntimeJobHandler
+} from '../lib/runtime/production-runtime.mjs';
 import { RuntimeService } from '../lib/runtime/service.mjs';
 import { SessionRegistry } from '../lib/runtime/session-registry.mjs';
 import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
@@ -168,18 +172,7 @@ async function source(command, args) {
   try {
     const pipeline = new RelayPipeline({
       store,
-      route: async (event) => {
-        if (event.type !== 'task.created' && event.type !== 'task.resumed') return;
-        store.enqueueJob({
-          job_id: `J-event-${event.event_id}`,
-          workflow_run_id: event.workflow_run_id,
-          type: event.type,
-          payload: {
-            ...event.payload,
-            workspace_root: path.resolve(options.cwd ?? process.cwd())
-          }
-        });
-      }
+      route: createProductionRoute(store, { workspaceRoot: options.cwd ?? process.cwd() })
     });
     const observer = new FileContractObserver({ store, pipeline });
     const result = await observer.scanOnce(path.resolve(file));
@@ -229,7 +222,10 @@ async function service(command, args) {
     primaryCapabilities: DEFAULT_PRIMARY_CAPABILITIES,
     processSupervisor: supervisor
   });
-  const pipeline = new RelayPipeline({ store });
+  const pipeline = new RelayPipeline({
+    store,
+    route: createProductionRoute(store, { workspaceRoot: options.cwd ?? process.cwd() })
+  });
   const runtime = new RuntimeService({
     store,
     pipeline,
