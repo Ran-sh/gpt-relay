@@ -174,7 +174,10 @@ async function source(command, args) {
           job_id: `J-event-${event.event_id}`,
           workflow_run_id: event.workflow_run_id,
           type: event.type,
-          payload: event.payload
+          payload: {
+            ...event.payload,
+            workspace_root: path.resolve(options.cwd ?? process.cwd())
+          }
         });
       }
     });
@@ -262,7 +265,7 @@ Usage:
   gpt-relay runtime events --workflow <id> [--db <file>] [--control-only] [--limit <n>] [--json]
   gpt-relay human reply <attention-id> --text <value> [--db <file>] [--json]
   gpt-relay approval grant|deny <attention-id> [--reason <value>] [--db <file>] [--json]
-  gpt-relay source scan-file <task.json> [--db <file>] [--json]
+  gpt-relay source scan-file <task.json> [--cwd <workspace>] [--db <file>] [--json]
   gpt-relay doctor codex [--live] [--cli <file>] [--cli-arg <value>] [--json]
   gpt-relay service once|start [--db <file>] [--model <id>] [--poll <ms>] [--json]
   gpt-relay task validate-vnext <file> [--json]
