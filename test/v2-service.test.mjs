@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { getEventListeners } from 'node:events';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -15,6 +16,22 @@ test('foreground runtime service keeps the process alive between polls', async (
   t.after(() => child.kill());
   await new Promise((resolve) => setTimeout(resolve, 150));
   assert.equal(child.exitCode, null);
+});
+
+test('runtime service does not accumulate abort listeners while polling', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  const service = new RuntimeService({ store, pipeline: new RelayPipeline({ store }) });
+  const controller = new AbortController();
+  t.after(() => {
+    controller.abort();
+    service.close();
+    store.close();
+  });
+  const running = service.start({ signal: controller.signal, pollMs: 25 });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  assert.ok(getEventListeners(controller.signal, 'abort').length <= 1);
+  controller.abort();
+  await running;
 });
 
 test('durable jobs are idempotent, claimable, and recoverable after a worker crash', (t) => {
