@@ -5,6 +5,8 @@ import {
   SemanticClassifier,
   SEMANTIC_CLASSIFIER_TYPES
 } from '../lib/relay/semantic-classifier.mjs';
+import { RelayPipeline } from '../lib/relay/pipeline.mjs';
+import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
 
 test('semantic classifier conservatively recognizes unambiguous English and Chinese signals', () => {
   const classifier = new SemanticClassifier();
@@ -45,4 +47,23 @@ test('semantic classifier fails closed for invalid and oversized input and retur
   for (const value of values) assert.ok(SEMANTIC_CLASSIFIER_TYPES.has(value));
   assert.equal(typeof classifier.dispatch, 'undefined');
   assert.equal(typeof classifier.action, 'undefined');
+});
+
+test('relay records semantic fallback without routing natural-language approval as an action', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  let routes = 0;
+  const pipeline = new RelayPipeline({
+    store,
+    classifier: new SemanticClassifier(),
+    route: async () => { routes += 1; }
+  });
+
+  const accepted = await pipeline.accept({
+    id: 'NL-1', type: 'natural_language', payload: { text: 'I approve this request' }
+  }, { workflow_run_id: 'W-semantic', source: 'chat' });
+
+  assert.equal(accepted.status, 'stored_trace');
+  assert.equal(accepted.event.payload.semantic_type, 'approval.granted');
+  assert.equal(routes, 0);
 });
