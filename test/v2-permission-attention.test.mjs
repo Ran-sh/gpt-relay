@@ -74,3 +74,36 @@ test('unknown permission requests fail closed as SECURITY Attention', async (t) 
   assert.equal(outcome.state, 'WAITING_FOR_HUMAN');
   assert.equal(store.listAttention({ openOnly: true })[0].type, 'SECURITY');
 });
+
+test('approval resume grants only the authorization named by its durable Attention', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  const executor = new FakeExecutor({
+    capabilities: ['local.shell', 'publish'],
+    scenarios: [
+      { events: [{ id: 'permission-resume', type: 'request.opened', payload: {
+        operation: 'npm.publish', capability: 'publish'
+      } }] },
+      { events: [], result: { status: 'PASS', summary: 'published after approval' } }
+    ]
+  });
+  const registry = new ExecutorRegistry();
+  registry.register(executor);
+  const daemon = new WorkflowDaemon({
+    store, registry, decisionRunner: new ScriptedDecisionRunner([
+      { decision: 'COMPLETE', reason: 'Validated approved publish' }
+    ]), primaryCapabilities: ['reasoning']
+  });
+
+  const waiting = await daemon.run(permissionTask());
+  const attention = store.listAttention({ openOnly: true })[0];
+  const completed = await daemon.resume(waiting.workflow_run_id, {
+    type: 'approval.granted', attention_id: attention.attention_id, response: 'approved'
+  });
+
+  assert.equal(completed.state, 'COMPLETED');
+  const workflow = store.getWorkflow(waiting.workflow_run_id);
+  assert.equal(workflow.task.authorization.publish, false, 'the original policy remains auditable');
+  assert.equal(workflow.checkpoint.current_task.authorization.publish, true);
+  assert.equal(workflow.checkpoint.current_task.authorization.git_push, false);
+});
