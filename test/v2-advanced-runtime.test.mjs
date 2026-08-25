@@ -72,6 +72,11 @@ test('expired remote runner lease is recovered with a new token and generation',
     runner_job_id: 'RJ-expired', runner_id: 'runner-a', token: stale.token,
     generation: stale.generation, result: { status: 'PASS' }
   }), /lease|token/i);
+  assert.equal(store.completeRemoteRunnerJob('RJ-expired', { status: 'STALE' }, {
+    runner_id: 'runner-a', token: stale.token, generation: stale.generation,
+    now: new Date(now).toISOString()
+  }), false);
+  assert.equal(store.getRemoteRunnerJob('RJ-expired').status, 'LEASED');
 });
 
 test('schedule engine emits each due occurrence once', (t) => {
