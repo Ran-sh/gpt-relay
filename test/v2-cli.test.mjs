@@ -25,8 +25,8 @@ test('package exposes gpt-relay while retaining the legacy agent-workflow comman
   assert.equal(manifest.private, undefined);
   assert.equal(manifest.publishConfig.access, 'public');
   assert.equal(manifest.repository.url, 'git+https://github.com/Ran-sh/gpt-relay.git');
-  assert.equal(manifest.bin['gpt-relay'], './bin/gpt-relay.mjs');
-  assert.equal(manifest.bin['agent-workflow'], './bin/agent-workflow.mjs');
+  assert.equal(manifest.bin['gpt-relay'], 'bin/gpt-relay.mjs');
+  assert.equal(manifest.bin['agent-workflow'], 'bin/agent-workflow.mjs');
   assert.equal(manifest.engines.node, '>=24');
 });
 

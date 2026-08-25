@@ -4,8 +4,8 @@
   "description": "GPT-first durable workflow relay with audited decisions and multi-agent executors",
   "type": "module",
   "bin": {
-    "gpt-relay": "./bin/gpt-relay.mjs",
-    "agent-workflow": "./bin/agent-workflow.mjs"
+    "gpt-relay": "bin/gpt-relay.mjs",
+    "agent-workflow": "bin/agent-workflow.mjs"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
