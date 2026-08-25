@@ -165,6 +165,43 @@ test('daemon auto-continues PARTIAL in the same session and completes after PASS
   );
 });
 
+test('daemon materializes the validated final Result Contract before completion', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  const registry = new ExecutorRegistry();
+  registry.register(new FakeExecutor({
+    capabilities: ['local.shell', 'local.test'],
+    result: { status: 'PASS', summary: 'All acceptance checks passed', tests: [] }
+  }));
+  const writes = [];
+  const daemon = new WorkflowDaemon({
+    store,
+    registry,
+    decisionRunner: new ScriptedDecisionRunner([
+      { decision: 'COMPLETE', reason: 'Validated final result' }
+    ]),
+    primaryCapabilities: ['reasoning'],
+    resultContractService: {
+      write(input) {
+        writes.push(structuredClone(input));
+        return { status: 'written', path: 'result.json', contract: input };
+      }
+    }
+  });
+  const contractedTask = {
+    ...task(),
+    result_contract: 'docs/agent-results/T-304.json'
+  };
+
+  const outcome = await daemon.run(contractedTask);
+
+  assert.equal(outcome.state, 'COMPLETED');
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].task.id, 'T-304');
+  assert.equal(writes[0].status, 'PASS');
+  assert.equal(store.getWorkflow(outcome.workflow_run_id).result_contract.path, 'result.json');
+});
+
 test('daemon never starts an executor when the primary has no capability gap', async (t) => {
   const store = new SQLiteRuntimeStore(':memory:');
   t.after(() => store.close());
