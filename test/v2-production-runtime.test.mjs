@@ -99,6 +99,28 @@ test('production control route idempotently converts observed tasks into durable
   assert.equal(jobs[0].payload.workspace_root, path.resolve('C:/repo'));
 });
 
+test('production route wakes a linked verifying workflow once for an external control event', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  store.saveWorkflow({
+    run_id: 'W-ci', task_id: 'T-ci', objective: 'Keep CI green', state: 'VERIFYING',
+    task: { id: 'T-ci' }, checkpoint: { attempt_count: 1 }
+  });
+  const route = createProductionRoute(store);
+  const event = {
+    event_id: 'E-ci-failed', workflow_run_id: 'W-ci', task_id: 'T-ci',
+    type: 'github.ci_failed', payload: { repository: 'Ran-sh/gpt-relay' }
+  };
+
+  await route(event);
+  await route(event);
+
+  const jobs = store.listJobs({ status: 'PENDING' });
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].type, 'workflow.resume_requested');
+  assert.equal(jobs[0].payload.trigger.type, 'github.ci_failed');
+});
+
 test('reclaimed task job never repeats a completed workflow or uncertain side effects', async (t) => {
   const temporary = mkdtempSync(path.join(tmpdir(), 'gpt-relay-recovery-'));
   t.after(() => rmSync(temporary, { recursive: true, force: true }));
