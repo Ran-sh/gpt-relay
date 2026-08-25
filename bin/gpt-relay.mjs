@@ -16,7 +16,7 @@ import { FileContractObserver } from '../lib/relay/observer.mjs';
 import { RelayPipeline } from '../lib/relay/pipeline.mjs';
 import { WorkflowDaemon } from '../lib/runtime/daemon.mjs';
 import { ProcessSupervisor } from '../lib/runtime/process-supervisor.mjs';
-import { createRuntimeJobHandler } from '../lib/runtime/production-runtime.mjs';
+import { DEFAULT_PRIMARY_CAPABILITIES, createRuntimeJobHandler } from '../lib/runtime/production-runtime.mjs';
 import { RuntimeService } from '../lib/runtime/service.mjs';
 import { SessionRegistry } from '../lib/runtime/session-registry.mjs';
 import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
@@ -223,6 +223,7 @@ async function service(command, args) {
     store,
     registry,
     decisionRunner: new AuditedDecisionRunner({ store, provider }),
+    primaryCapabilities: DEFAULT_PRIMARY_CAPABILITIES,
     processSupervisor: supervisor
   });
   const pipeline = new RelayPipeline({ store });
