@@ -6,7 +6,9 @@ The primary GPT owns the objective, capability analysis, repository-side work, e
 
 `RelayPipeline` normalizes provider events and writes them to `SQLiteRuntimeStore` before any router runs. Trace events stop there. Control events use a durable routed marker: failed delivery remains pending, and `drainPending` replays the outbox after restart.
 
-`SQLiteRuntimeStore` is the runtime truth for workflow runs, attempts, sessions, events, cursors, Attention, and artifact metadata. Git remains the durable, portable ledger for Task / Result Contracts and auditable evidence.
+`SQLiteRuntimeStore` is the runtime truth for workflow runs, attempts, sessions, events, cursors, Attention, artifacts, runtime jobs, leases, decision audits, notification deliveries, graph nodes, runner leases, and schedule occurrences. Git remains the durable, portable ledger for Task / Result Contracts and auditable evidence.
+
+`RuntimeService` holds a renewable single-writer lease, reconciles executor processes, drains pending control events in order, and claims one durable continuation job per cycle. `WorkflowDaemon` checkpoints the Task Contract and bounded execution context so a human reply or approval can resume after a full process restart.
 
 `CodexAdapter` uses the non-interactive JSONL protocol. It treats a structured terminal event plus process exit as evidence; neither one is sufficient alone. Resume checks that the returned Codex thread ID equals the requested session. Credential-denied jobs receive a minimal environment and isolated home. Writable jobs default to `IsolatedCopyWorkspaceBoundary`: Git/runtime metadata and source symlinks are excluded, execution occurs in a temporary copy, and only successful regular-file changes matching allowed but not forbidden scopes are applied back. Deletions additionally require destructive authorization. A host can replace the boundary; explicitly disabling it refuses launch.
 
@@ -16,6 +18,8 @@ Every execution creates an immutable attempt. A same-task follow-up can reuse th
 
 Executor PIDs are stored with RUNNING sessions. A fresh `ProcessSupervisor` hydrates those records, probes liveness, and marks missing processes LOST. The daemon registers and unregisters handles and closes attempt/workflow state with Attention when any executor lifecycle phase throws.
 
-Core code depends on readiness, capabilities, start, optional resume, events, cancel, and result collection. Provider CLI flags and native messages stay in the adapter. A new executor should be registered without changing the state machine or scheduler.
+Core code depends on readiness, capabilities, start, optional resume, events, cancel, and result collection. Provider CLI flags and native messages stay in the adapter. Codex and Claude implement this contract. A new executor should be registered without changing the state machine or scheduler; unsupported desktop-only products are not assigned invented CLI protocols.
+
+Advanced runtime primitives are deliberately headless: `WorkflowGraph` releases barriers only after every dependency passes, `RemoteRunnerQueue` rotates tokens and generations when expired leases are recovered, `ScheduleEngine` stores occurrence IDs before advancing, and `RuntimeWatchServer` exposes bounded read-only health/workflow/event views on loopback by default.
 
 Each workflow has attempt and action budgets. Repeated failure ends in Attention rather than an unbounded retry loop. Unknown decisions, events, and authorization actions fail closed.
