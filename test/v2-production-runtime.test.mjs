@@ -19,11 +19,14 @@ test('production job handler executes observed task contracts and durable resump
   };
   const handler = createRuntimeJobHandler({ daemon, cwd: temporary });
 
-  assert.equal((await handler({ type: 'task.created', payload: { path: file } })).state, 'COMPLETED');
+  assert.equal((await handler({
+    type: 'task.created', workflow_run_id: 'W-observed', payload: { path: file }
+  })).state, 'COMPLETED');
   assert.equal((await handler({
     type: 'human.replied', workflow_run_id: 'W-runtime', payload: { response: 'continue' }
   })).state, 'RUNNING');
   assert.equal(calls[0][0], 'run');
+  assert.equal(calls[0][2].workflow_run_id, 'W-observed');
   assert.equal(calls[1][2].type, 'human.replied');
 });
 
