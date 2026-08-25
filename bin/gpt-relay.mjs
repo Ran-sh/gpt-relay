@@ -158,6 +158,34 @@ function config(command, args) {
   print({ effective }, options.json, (value) => JSON.stringify(value.effective, null, 2));
 }
 
+function schedule(command, args) {
+  const options = parseOptions(args, { flags: ['json'] });
+  if (command === 'list') {
+    const report = withStore(options, (store) => ({ schedules: store.listSchedules() }));
+    print(report, options.json, (value) => value.schedules
+      .map((item) => `${item.schedule_id} every ${item.every_ms}ms next ${item.next_at}`).join('\n'));
+    return;
+  }
+  if (command !== 'add') fail(`unknown schedule command: ${command ?? '(missing)'}`);
+  const scheduleId = options._[0];
+  if (!scheduleId || !options['every-ms'] || !options.task) {
+    fail('schedule add requires <schedule-id> --every-ms <n> --task <task.json>');
+  }
+  let taskValue;
+  try {
+    taskValue = JSON.parse(readFileSync(path.resolve(options.task), 'utf8'));
+  } catch (error) {
+    fail(`cannot read scheduled task: ${error.message}`);
+  }
+  const report = withStore(options, (store) => {
+    new ScheduleEngine(store).upsert({
+      schedule_id: scheduleId, every_ms: Number(options['every-ms']), task: taskValue
+    });
+    return { schedule: store.listSchedules().find((item) => item.schedule_id === scheduleId) };
+  });
+  print(report, options.json, (value) => `${value.schedule.schedule_id} next ${value.schedule.next_at}`);
+}
+
 function operatorCommand(kind, command, args) {
   const options = parseOptions(args, { flags: ['json'] });
   const attentionId = options._[0];
@@ -459,6 +487,8 @@ Usage:
   gpt-relay service once|start [--db <file>] [--model <id>] [--poll <ms>] [--notify-jsonl <file>] [--quiet-notifications] [--json]
   gpt-relay task validate-vnext <file> [--json]
   gpt-relay config resolve <workspace.json> [--workflow <file>] [--task <file>] [--json]
+  gpt-relay schedule add <id> --every-ms <n> --task <task.json> [--db <file>] [--json]
+  gpt-relay schedule list [--db <file>] [--json]
   gpt-relay --version
 
 The legacy agent-workflow command remains available for v1.x install/task/result workflows.`);
@@ -473,6 +503,8 @@ if (args[0] === '--version' || args[0] === '-v') {
   task(args[1], args.slice(2));
 } else if (args[0] === 'config') {
   config(args[1], args.slice(2));
+} else if (args[0] === 'schedule') {
+  schedule(args[1], args.slice(2));
 } else if (args[0] === 'human') {
   operatorCommand('human', args[1], args.slice(2));
 } else if (args[0] === 'approval') {
