@@ -199,6 +199,20 @@ test('idempotency collision never routes unpersisted in-memory content', async (
   assert.deepEqual(routed, ['persisted']);
 });
 
+test('changed replay content for a pending event ID is rejected', async (t) => {
+  const { store } = withStore(t);
+  let delivered = null;
+  const offline = new RelayPipeline({ store, route: async () => { throw new Error('offline'); } });
+  const context = { workflow_run_id: 'W-replay', attempt_id: 'A-1', source: 'codex', generation: 1 };
+  await assert.rejects(offline.accept({ event_id: 'E-pending', type: 'turn.completed', payload: { value: 'original' } }, context));
+
+  const online = new RelayPipeline({ store, route: async (event) => { delivered = event.payload.value; } });
+  const changed = await online.accept({ event_id: 'E-pending', type: 'turn.completed', payload: { value: 'changed' } }, context);
+  assert.equal(changed.status, 'collision');
+  assert.equal(delivered, null);
+  assert.equal(store.listPendingControlEvents({ workflowRunId: 'W-replay' })[0].payload.value, 'original');
+});
+
 test('redaction preserves boolean authorization policy while hiding credentials', () => {
   assert.deepEqual(redactSecrets({
     authorization: { shell: true, credentials: false },
