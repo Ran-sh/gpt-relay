@@ -32,6 +32,44 @@ test('Claude adapter validates structured result and exact resume session', asyn
   assert.equal((await mismatched.collectResult(resumed)).session_lost, true);
 });
 
+test('Claude adapter rejects unauthorized capabilities before spawning', async () => {
+  const denied = structuredClone(task);
+  denied.required_capabilities.push('network');
+  denied.delegated_scope.required_capabilities.push('network');
+  denied.authorization.network = false;
+  const adapter = new ClaudeAdapter({
+    cli: process.execPath,
+    cliArgs: [fixture],
+    workspaceBoundary: boundary
+  });
+
+  await assert.rejects(
+    adapter.start(denied, { cwd: process.cwd() }),
+    /authorization denies network/
+  );
+});
+
+test('Claude adapter streams session events before the process exits', async () => {
+  const adapter = new ClaudeAdapter({
+    cli: process.execPath,
+    cliArgs: [fixture],
+    environment: { FAKE_CLAUDE_DELAY_EXIT_MS: '1000' },
+    workspaceBoundary: boundary
+  });
+  const handle = await adapter.start(task, { cwd: process.cwd() });
+  const iterator = adapter.events(handle)[Symbol.asyncIterator]();
+  const first = await Promise.race([
+    iterator.next(),
+    new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), 300))
+  ]);
+
+  if (first.timedOut) await adapter.cancel(handle);
+  assert.equal(first.timedOut, undefined, 'session event must be observable while the child is still alive');
+  assert.equal(first.value.type, 'session.created');
+  for await (const _event of { [Symbol.asyncIterator]: () => iterator }) {}
+  await adapter.collectResult(handle);
+});
+
 test('executor registry returns an audited deterministic readiness snapshot', async () => {
   const registry = new ExecutorRegistry();
   registry.register(new ClaudeAdapter({ cli: process.execPath, cliArgs: [fixture], workspaceBoundary: boundary }), { priority: 20 });

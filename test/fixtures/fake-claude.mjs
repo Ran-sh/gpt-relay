@@ -15,4 +15,10 @@ console.log(JSON.stringify({
   is_error: Boolean(process.env.FAKE_CLAUDE_FAIL), result: 'Claude completed',
   session_id: sessionId, total_cost_usd: 0.01, usage: { input_tokens: 3, output_tokens: 2 }
 }));
-process.exit(process.env.FAKE_CLAUDE_FAIL ? 1 : 0);
+const exitCode = process.env.FAKE_CLAUDE_FAIL ? 1 : 0;
+const delayExitMs = Number(process.env.FAKE_CLAUDE_DELAY_EXIT_MS ?? 0);
+if (Number.isFinite(delayExitMs) && delayExitMs > 0) {
+  setTimeout(() => process.exit(exitCode), delayExitMs);
+} else {
+  process.exit(exitCode);
+}
