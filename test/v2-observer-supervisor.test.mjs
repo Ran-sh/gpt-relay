@@ -101,7 +101,13 @@ test('process supervisor marks missing processes as lost during restart reconcil
     }
   });
 
-  const report = await supervisor.reconcile();
+  // Simulate a daemon restart: the new supervisor has no in-memory process map
+  // and must reconstruct non-terminal handles from the durable session rows.
+  const restarted = new ProcessSupervisor({
+    sessions,
+    isAlive: async (pid) => pid === 111
+  });
+  const report = await restarted.reconcile();
   assert.deepEqual(report, { alive: ['S-live'], lost: ['S-dead'] });
   assert.equal(store.getSession('S-live').status, 'RUNNING');
   assert.equal(store.getSession('S-dead').status, 'LOST');
