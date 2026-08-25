@@ -53,3 +53,21 @@ test('GitHub delivery ID collision with changed payload fails closed', async (t)
     headers: { ...headers, 'x-hub-signature-256': signature('secret', changedBody) }, body: changedBody
   }, { workflow_run_id: 'W-pr' }), /delivery collision/i);
 });
+
+test('invalid signed JSON cannot poison a GitHub delivery ID', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  const source = new GitHubWebhookSource({
+    secret: 'secret', store, pipeline: new RelayPipeline({ store })
+  });
+  const invalid = Buffer.from('{');
+  const base = { 'x-github-delivery': 'retryable', 'x-github-event': 'pull_request' };
+  await assert.rejects(source.accept({
+    headers: { ...base, 'x-hub-signature-256': signature('secret', invalid) }, body: invalid
+  }, { workflow_run_id: 'W-retry' }), /invalid JSON/i);
+  const valid = Buffer.from(JSON.stringify({ action: 'opened', pull_request: { number: 1 } }));
+  const result = await source.accept({
+    headers: { ...base, 'x-hub-signature-256': signature('secret', valid) }, body: valid
+  }, { workflow_run_id: 'W-retry' });
+  assert.equal(result.status, 'routed');
+});
