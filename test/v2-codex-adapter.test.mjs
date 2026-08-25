@@ -125,7 +125,7 @@ test('CodexAdapter fails closed when resume returns a different thread', async (
 });
 
 test('CodexAdapter fails closed when writable scope lacks an enforceable boundary', async () => {
-  const adapter = new CodexAdapter({ cli: process.execPath, cliArgs: [fixture] });
+  const adapter = new CodexAdapter({ cli: process.execPath, cliArgs: [fixture], workspaceBoundary: null });
   await assert.rejects(
     adapter.start(task(), { cwd: process.cwd() }),
     /enforceable workspace boundary/

@@ -54,7 +54,7 @@ See [docs/information-flow.md](docs/information-flow.md).
 - Git for legacy Task / Result handoffs
 - Codex CLI only for real Codex execution; all core tests use protocol fixtures and do not call a model
 
-Writable Codex jobs additionally require a trusted `workspaceBoundary` implementation. The adapter fails closed without one, filters credential-shaped environment variables when `authorization.credentials` is false, and never treats prompt text as a filesystem security boundary.
+Writable Codex jobs run in the built-in isolated-copy boundary, which excludes Git/runtime metadata and applies only authorized output paths back to the source workspace. A host may replace this with a stronger `workspaceBoundary`; explicitly disabling the boundary fails closed. When `authorization.credentials` is false, the child receives a minimal environment plus an isolated home/profile, rather than the parent credential environment.
 
 ## Quick start
 

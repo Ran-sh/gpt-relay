@@ -8,7 +8,7 @@ The primary GPT owns the objective, capability analysis, repository-side work, e
 
 `SQLiteRuntimeStore` is the runtime truth for workflow runs, attempts, sessions, events, cursors, Attention, and artifact metadata. Git remains the durable, portable ledger for Task / Result Contracts and auditable evidence.
 
-`CodexAdapter` uses the non-interactive JSONL protocol. It treats a structured terminal event plus process exit as evidence; neither one is sufficient alone. Resume checks that the returned Codex thread ID equals the requested session. Credential-shaped environment variables are removed unless explicitly authorized. Writable jobs require a host-provided `workspaceBoundary` that runs Codex in an enforceably isolated workspace and applies only authorized output; without it the adapter refuses to launch.
+`CodexAdapter` uses the non-interactive JSONL protocol. It treats a structured terminal event plus process exit as evidence; neither one is sufficient alone. Resume checks that the returned Codex thread ID equals the requested session. Credential-denied jobs receive a minimal environment and isolated home. Writable jobs default to `IsolatedCopyWorkspaceBoundary`: Git/runtime metadata and source symlinks are excluded, execution occurs in a temporary copy, and only successful regular-file changes matching allowed but not forbidden scopes are applied back. Deletions additionally require destructive authorization. A host can replace the boundary; explicitly disabling it refuses launch.
 
 Supported workflow states are `RUNNING`, `WAITING_FOR_EXECUTOR`, `WAITING_FOR_CAPABILITY`, `WAITING_FOR_APPROVAL`, `WAITING_FOR_HUMAN`, `VERIFYING`, `PAUSED`, `COMPLETED`, `FAILED`, and `CANCELLED`.
 

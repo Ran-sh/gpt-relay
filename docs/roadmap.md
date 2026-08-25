@@ -13,7 +13,7 @@ Long-running OS service packaging and production model credentials remain deploy
 - filesystem/Git observer service entry point;
 - approval/human reply commands;
 - controlled live Codex smoke job.
-- production isolated-workspace boundary provider for writable Codex jobs.
+- optional OS-native/container boundary providers stronger than the built-in isolated-copy boundary.
 
 ## v2.2 — multi-executor
 
