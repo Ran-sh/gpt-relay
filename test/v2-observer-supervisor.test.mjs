@@ -64,7 +64,8 @@ test('session registry resumes only the exact task binding and increments genera
     conversation_root_id: 'C-1',
     head_attempt_id: 'A-1',
     status: 'READY',
-    generation: 1
+    generation: 1,
+    pid: 77
   });
 
   assert.equal(registry.forTask('T-1', 'codex').session_id, 'S-1');
@@ -73,6 +74,7 @@ test('session registry resumes only the exact task binding and increments genera
   assert.equal(resumed.generation, 2);
   assert.equal(resumed.head_attempt_id, 'A-2');
   assert.equal(resumed.status, 'RUNNING');
+  assert.equal(resumed.pid, undefined);
   assert.throws(
     () => registry.bind({ ...resumed, task_id: 'T-other' }),
     /cannot rebind session S-1/
@@ -81,6 +83,16 @@ test('session registry resumes only the exact task binding and increments genera
 
 test('process supervisor marks missing processes as lost during restart reconciliation', async (t) => {
   const { store } = runtime(t);
+  for (const [runId, attemptId, taskId] of [
+    ['W-live', 'A-1', 'T-1'],
+    ['W-dead', 'A-2', 'T-2']
+  ]) {
+    store.saveWorkflow({ run_id: runId, objective: taskId, state: 'RUNNING' });
+    store.saveAttempt({
+      attempt_id: attemptId, task_id: taskId, workflow_run_id: runId,
+      number: 1, status: 'RUNNING', evidence: {}
+    });
+  }
   const sessions = new SessionRegistry(store);
   const supervisor = new ProcessSupervisor({
     sessions,
@@ -111,4 +123,7 @@ test('process supervisor marks missing processes as lost during restart reconcil
   assert.deepEqual(report, { alive: ['S-live'], lost: ['S-dead'] });
   assert.equal(store.getSession('S-live').status, 'RUNNING');
   assert.equal(store.getSession('S-dead').status, 'LOST');
+  assert.equal(store.getAttempt('A-2').status, 'FAIL');
+  assert.equal(store.getWorkflow('W-dead').state, 'FAILED');
+  assert.match(store.listAttention({ openOnly: true })[0].message, /S-dead.*process/i);
 });
