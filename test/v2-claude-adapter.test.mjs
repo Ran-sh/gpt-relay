@@ -17,7 +17,7 @@ test('Claude adapter validates structured result and exact resume session', asyn
   const events = [];
   for await (const event of adapter.events(handle)) events.push(event.type);
   const result = await adapter.collectResult(handle);
-  assert.deepEqual(events, ['session.created', 'executor.progress', 'executor.completed']);
+  assert.deepEqual(events, ['thread.started', 'executor.progress', 'executor.completed']);
   assert.equal(result.status, 'PASS');
   assert.equal(result.session_id, 'C-new');
   assert.equal(result.total_cost_usd, 0.01);
@@ -65,7 +65,7 @@ test('Claude adapter streams session events before the process exits', async () 
 
   if (first.timedOut) await adapter.cancel(handle);
   assert.equal(first.timedOut, undefined, 'session event must be observable while the child is still alive');
-  assert.equal(first.value.type, 'session.created');
+  assert.equal(first.value.type, 'thread.started');
   for await (const _event of { [Symbol.asyncIterator]: () => iterator }) {}
   await adapter.collectResult(handle);
 });
