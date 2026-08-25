@@ -141,7 +141,7 @@ test('child environment removes credentials when authorization denies them', () 
   }, { FAKE_CODEX_MODE: 'test', API_TOKEN: 'secret' });
 
   assert.equal(childEnvironment.PATH, 'safe-path');
-  assert.equal(childEnvironment.CUSTOM_VALUE, 'kept');
+  assert.equal(childEnvironment.CUSTOM_VALUE, undefined);
   assert.equal(childEnvironment.FAKE_CODEX_MODE, 'test');
   assert.equal(childEnvironment.OPENAI_API_KEY, undefined);
   assert.equal(childEnvironment.GITHUB_TOKEN, undefined);
