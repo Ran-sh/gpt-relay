@@ -127,7 +127,12 @@ test('a new service atomically recovers a RUNNING job after the crashed owner le
     ownerId: 'replacement-owner',
     leaseTtlMs: 1_000,
     pipeline: { async drainPending() { return { routed: 0, failed: 0 }; } },
-    onJob: async (job) => ({ recovered: job.owner_id === 'replacement-owner' })
+    onJob: async (job) => {
+      const staleCompletion = store.completeJob(job.job_id, { stale: true }, { ownerId: 'crashed-owner' });
+      assert.equal(staleCompletion.status, 'RUNNING');
+      assert.equal(staleCompletion.owner_id, 'replacement-owner');
+      return { recovered: job.owner_id === 'replacement-owner' };
+    }
   });
   const report = await recovered.runOnce();
 
@@ -141,7 +146,6 @@ test('a new service atomically recovers a RUNNING job after the crashed owner le
 
 test('runtime service renews its service and job leases throughout a long onJob call', async (t) => {
   const store = new SQLiteRuntimeStore(':memory:');
-  t.after(() => store.close());
   store.enqueueJob({ job_id: 'J-long', workflow_run_id: 'W-long', type: 'workflow.resume', payload: {} });
   let finishJob;
   let jobStarted;
@@ -156,7 +160,10 @@ test('runtime service renews its service and job leases throughout a long onJob 
       return new Promise((resolve) => { finishJob = resolve; });
     }
   });
-  t.after(() => service.close());
+  t.after(() => {
+    service.close();
+    store.close();
+  });
 
   const running = service.runOnce();
   await started;
