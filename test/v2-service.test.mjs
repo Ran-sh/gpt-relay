@@ -1,8 +1,21 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import path from 'node:path';
 import test from 'node:test';
 
 import { RuntimeService } from '../lib/runtime/service.mjs';
 import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
+
+const root = path.resolve(new URL('..', import.meta.url).pathname.replace(/^\/(?:([A-Za-z]:))/, '$1'));
+
+test('foreground runtime service keeps the process alive between polls', async (t) => {
+  const child = spawn(process.execPath, [path.join(root, 'test', 'fixtures', 'runtime-service-foreground.mjs')], {
+    stdio: 'ignore'
+  });
+  t.after(() => child.kill());
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(child.exitCode, null);
+});
 
 test('durable jobs are idempotent, claimable, and recoverable after a worker crash', (t) => {
   const store = new SQLiteRuntimeStore(':memory:');
