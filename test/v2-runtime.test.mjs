@@ -107,7 +107,7 @@ test('id-less executor events remain distinct across attempts and generations', 
   assert.equal(store.listEvents({ workflowRunId: 'W-generation' }).length, 2);
 });
 
-test('failed control routing remains pending and is retried on replay', async (t) => {
+test('failed control routing remains pending and is drained after restart', async (t) => {
   const { store } = withStore(t);
   let calls = 0;
   const pipeline = new RelayPipeline({
@@ -122,9 +122,14 @@ test('failed control routing remains pending and is retried on replay', async (t
 
   await assert.rejects(pipeline.accept(raw, context), /router unavailable/);
   assert.equal(store.listPendingControlEvents({ workflowRunId: 'W-route' }).length, 1);
-  assert.equal((await pipeline.accept(raw, context)).status, 'routed');
+  const restarted = new RelayPipeline({ store, route: async () => { calls += 1; } });
+  assert.deepEqual(await restarted.drainPending({ workflowRunId: 'W-route' }), {
+    routed: 1,
+    failed: 0
+  });
   assert.equal(calls, 2);
   assert.equal(store.listPendingControlEvents({ workflowRunId: 'W-route' }).length, 0);
+  assert.equal((await restarted.accept(raw, context)).status, 'duplicate');
 });
 
 test('redaction preserves boolean authorization policy while hiding credentials', () => {
