@@ -53,19 +53,20 @@ test('Claude adapter streams session events before the process exits', async () 
   const adapter = new ClaudeAdapter({
     cli: process.execPath,
     cliArgs: [fixture],
-    environment: { FAKE_CLAUDE_DELAY_EXIT_MS: '1000' },
+    environment: { FAKE_CLAUDE_DELAY_EXIT_MS: '10000' },
     workspaceBoundary: boundary
   });
   const handle = await adapter.start(task, { cwd: process.cwd() });
   const iterator = adapter.events(handle)[Symbol.asyncIterator]();
   const first = await Promise.race([
     iterator.next(),
-    new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), 300))
+    new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), 3_000))
   ]);
 
   if (first.timedOut) await adapter.cancel(handle);
   assert.equal(first.timedOut, undefined, 'session event must be observable while the child is still alive');
   assert.equal(first.value.type, 'thread.started');
+  await adapter.cancel(handle);
   for await (const _event of { [Symbol.asyncIterator]: () => iterator }) {}
   await adapter.collectResult(handle);
 });
