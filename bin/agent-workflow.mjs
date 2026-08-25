@@ -121,7 +121,8 @@ function copyPlan(facts) {
     ['schema/task-contract.schema.json', '.agent-workflow/schema/task-contract.schema.json', ''],
     ['schema/result-contract.schema.json', '.agent-workflow/schema/result-contract.schema.json', ''],
     ['validator/validate-contract.mjs', '.agent-workflow/validator/validate-contract.mjs', ''],
-    ['lib/path-policy.mjs', '.agent-workflow/lib/path-policy.mjs', '']
+    ['lib/path-policy.mjs', '.agent-workflow/lib/path-policy.mjs', ''],
+    ['lib/contracts/v2.mjs', '.agent-workflow/lib/contracts/v2.mjs', '']
   ].map(([source, destination, suffix]) => ({
     source: path.join(packageRoot, source),
     destination: ensureRelativeSafe(destination),

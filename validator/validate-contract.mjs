@@ -5,6 +5,7 @@ import pathModule from 'node:path';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 import { matchesManagedScope, normalizeManagedPath, resolveManagedPath } from '../lib/path-policy.mjs';
+import { validateTaskVNext } from '../lib/contracts/v2.mjs';
 
 const STATUSES = new Set(['PASS', 'FAIL', 'PARTIAL', 'SKIP', 'BLOCKED', 'NOT RUN']);
 const MODES = new Set(['IMPLEMENT', 'TEST_ONLY', 'REVIEW_ONLY']);
@@ -12,7 +13,8 @@ const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$
 const TASK_KEYS = new Set([
   'id', 'mode', 'source_branch', 'source_commit', 'objective', 'context',
   'allowed_changes', 'forbidden_changes', 'validation', 'acceptance_criteria',
-  'result_contract', 'completion_commit_contract', 'delete_active_task_on_completion', 'metadata'
+  'result_contract', 'completion_commit_contract', 'delete_active_task_on_completion', 'metadata',
+  'parent_objective', 'required_capabilities', 'delegated_scope', 'authorization'
 ]);
 const RESULT_KEYS = new Set([
   'schema_version', 'task_id', 'source_commit', 'result_commit', 'status', 'summary', 'timeline',
@@ -75,6 +77,9 @@ function timestampMs(value) {
 function validateTask(value) {
   const errors = [];
   if (!isObject(value)) return ['task must be an object'];
+
+  const hasVNext = ['required_capabilities', 'delegated_scope', 'authorization']
+    .some((key) => value[key] !== undefined);
 
   for (const key of unknownKeys(value, TASK_KEYS)) errors.push(`unknown task property: ${key}`);
 
@@ -156,6 +161,8 @@ function validateTask(value) {
       }
     }
   }
+
+  if (hasVNext) errors.push(...validateTaskVNext(value));
 
   return errors;
 }

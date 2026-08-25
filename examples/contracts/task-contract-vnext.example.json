@@ -1,6 +1,10 @@
 {
   "id": "T-104",
+  "mode": "TEST_ONLY",
+  "source_branch": "main",
+  "source_commit": "LATEST",
   "objective": "Validate the Windows installer",
+  "context": "Implementation is complete; only local validation remains.",
   "required_capabilities": [
     "reasoning",
     "local.shell",
@@ -14,6 +18,9 @@
   ],
   "acceptance_criteria": [
     "The specified installer tests pass"
+  ],
+  "validation": [
+    "npm test"
   ],
   "delegated_scope": {
     "objective": "Run only the specified installer tests and return evidence",
@@ -46,5 +53,15 @@
     "publish": false,
     "deploy_production": false,
     "destructive_operations": false
+  },
+  "result_contract": "docs/agent-results/T-104.json",
+  "completion_commit_contract": [
+    "docs/agent-results/T-104.json",
+    "docs/agent-tasks/ACTIVE_TASK.json"
+  ],
+  "delete_active_task_on_completion": true,
+  "metadata": {
+    "executor": "ANY",
+    "attempt": 1
   }
 }
