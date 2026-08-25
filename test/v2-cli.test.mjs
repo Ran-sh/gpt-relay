@@ -21,7 +21,7 @@ function run(args, options = {}) {
 test('package exposes gpt-relay while retaining the legacy agent-workflow command', () => {
   const manifest = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
   assert.equal(manifest.name, '@ran-sh/gpt-relay');
-  assert.equal(manifest.version, '2.4.0');
+  assert.equal(manifest.version, '2.5.0');
   assert.equal(manifest.private, undefined);
   assert.equal(manifest.publishConfig.access, 'public');
   assert.equal(manifest.repository.url, 'git+https://github.com/Ran-sh/gpt-relay.git');
@@ -90,7 +90,7 @@ test('runtime CLI validates a vNext task without treating capability as authoriz
 
   const version = run(['--version']);
   assert.equal(version.status, 0, version.stderr);
-  assert.equal(version.stdout.trim(), '2.4.0');
+  assert.equal(version.stdout.trim(), '2.5.0');
 });
 
 test('CLI resolves human and approval Attention idempotently and scans a task source', (t) => {
