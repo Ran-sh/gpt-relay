@@ -1,0 +1,147 @@
+#!/usr/bin/env node
+
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import process from 'node:process';
+import { fileURLToPath } from 'node:url';
+
+import { validateTaskVNext } from '../lib/contracts/v2.mjs';
+import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function fail(message, code = 1) {
+  console.error(message);
+  process.exit(code);
+}
+
+function parseOptions(args, { flags = [] } = {}) {
+  const flagSet = new Set(flags);
+  const options = { _: [] };
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (!token.startsWith('--')) {
+      options._.push(token);
+      continue;
+    }
+    const name = token.slice(2);
+    if (flagSet.has(name)) {
+      options[name] = true;
+      continue;
+    }
+    const value = args[index + 1];
+    if (!value || value.startsWith('--')) fail(`${token} requires a value`);
+    options[name] = value;
+    index += 1;
+  }
+  return options;
+}
+
+function databasePath(options) {
+  return path.resolve(options.db ?? path.join(process.cwd(), '.gpt-relay', 'runtime.sqlite'));
+}
+
+function print(value, json, text) {
+  if (json) console.log(JSON.stringify(value, null, 2));
+  else console.log(text(value));
+}
+
+function withStore(options, operation) {
+  const store = new SQLiteRuntimeStore(databasePath(options));
+  try {
+    return operation(store);
+  } finally {
+    store.close();
+  }
+}
+
+function runtime(command, args) {
+  const options = parseOptions(args, { flags: ['json', 'control-only'] });
+  if (command === 'init') {
+    const report = withStore(options, () => ({ ok: true, database: databasePath(options) }));
+    print(report, options.json, (value) => `Initialized ${value.database}`);
+    return;
+  }
+  if (command === 'status') {
+    const report = withStore(options, (store) => ({
+      database: databasePath(options),
+      workflows: store.listWorkflows(),
+      open_attention: store.listAttention({ openOnly: true }).length
+    }));
+    print(report, options.json, (value) => (
+      value.workflows.length === 0
+        ? 'No workflow runs.'
+        : value.workflows.map((workflow) => `${workflow.run_id} ${workflow.state} ${workflow.objective}`).join('\n')
+    ));
+    return;
+  }
+  if (command === 'attention') {
+    const report = withStore(options, (store) => ({
+      attention: store.listAttention({ openOnly: true })
+    }));
+    print(report, options.json, (value) => (
+      value.attention.length === 0
+        ? 'No open Attention.'
+        : value.attention.map((item) => `${item.attention_id} ${item.type} ${item.message}`).join('\n')
+    ));
+    return;
+  }
+  if (command === 'events') {
+    if (!options.workflow) fail('runtime events requires --workflow <run-id>');
+    const report = withStore(options, (store) => ({
+      events: store.listEvents({
+        workflowRunId: options.workflow,
+        controlOnly: options['control-only'] === true,
+        limit: options.limit ? Number(options.limit) : 100
+      })
+    }));
+    print(report, options.json, (value) => value.events
+      .map((event) => `${event.timestamp} ${event.source} ${event.type}`).join('\n'));
+    return;
+  }
+  fail(`unknown runtime command: ${command ?? '(missing)'}`);
+}
+
+function task(command, args) {
+  if (command !== 'validate-vnext') fail(`unknown task command: ${command ?? '(missing)'}`);
+  const options = parseOptions(args, { flags: ['json'] });
+  const file = options._[0];
+  if (!file) fail('task validate-vnext requires a JSON file');
+  let value;
+  try {
+    value = JSON.parse(readFileSync(path.resolve(file), 'utf8'));
+  } catch (error) {
+    fail(`cannot read task: ${error.message}`);
+  }
+  const errors = validateTaskVNext(value);
+  const report = { valid: errors.length === 0, errors };
+  print(report, options.json, (result) => result.valid ? 'VALID' : `INVALID\n- ${result.errors.join('\n- ')}`);
+  if (!report.valid) process.exitCode = 1;
+}
+
+function help() {
+  console.log(`gpt-relay
+
+Usage:
+  gpt-relay runtime init [--db <file>] [--json]
+  gpt-relay runtime status [--db <file>] [--json]
+  gpt-relay runtime attention [--db <file>] [--json]
+  gpt-relay runtime events --workflow <id> [--db <file>] [--control-only] [--limit <n>] [--json]
+  gpt-relay task validate-vnext <file> [--json]
+  gpt-relay --version
+
+The legacy agent-workflow command remains available for v1.x install/task/result workflows.`);
+}
+
+const args = process.argv.slice(2);
+if (args[0] === '--version' || args[0] === '-v') {
+  console.log(readFileSync(path.join(packageRoot, 'VERSION'), 'utf8').trim());
+} else if (args[0] === 'runtime') {
+  runtime(args[1], args.slice(2));
+} else if (args[0] === 'task') {
+  task(args[1], args.slice(2));
+} else if (['help', '--help', '-h', undefined].includes(args[0])) {
+  help();
+} else {
+  fail(`unknown command: ${args[0]}\nRun gpt-relay --help for usage.`);
+}

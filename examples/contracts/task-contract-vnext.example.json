@@ -1,0 +1,50 @@
+{
+  "id": "T-104",
+  "objective": "Validate the Windows installer",
+  "required_capabilities": [
+    "reasoning",
+    "local.shell",
+    "local.test"
+  ],
+  "allowed_changes": [
+    "docs/agent-results/T-104.json"
+  ],
+  "forbidden_changes": [
+    "src/**"
+  ],
+  "acceptance_criteria": [
+    "The specified installer tests pass"
+  ],
+  "delegated_scope": {
+    "objective": "Run only the specified installer tests and return evidence",
+    "required_capabilities": [
+      "local.shell",
+      "local.test"
+    ],
+    "allowed_changes": [
+      "docs/agent-results/T-104.json"
+    ],
+    "forbidden_changes": [
+      "src/**"
+    ],
+    "validation": [
+      "npm test"
+    ],
+    "return": [
+      "exit_status",
+      "test_output",
+      "artifacts"
+    ]
+  },
+  "authorization": {
+    "shell": true,
+    "network": false,
+    "browser_login": false,
+    "credentials": false,
+    "git_commit": false,
+    "git_push": false,
+    "publish": false,
+    "deploy_production": false,
+    "destructive_operations": false
+  }
+}

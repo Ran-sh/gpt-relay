@@ -1,9 +1,10 @@
 {
-  "name": "@ran-sh/agent-workflow",
-  "version": "1.9.0",
+  "name": "@ran-sh/gpt-relay",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "bin": {
+    "gpt-relay": "./bin/gpt-relay.mjs",
     "agent-workflow": "./bin/agent-workflow.mjs"
   },
   "scripts": {
@@ -20,6 +21,6 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   }
 }
