@@ -132,3 +132,32 @@ test('boundary never follows a source directory junction', async (t) => {
   assert.deepEqual(report.applied, []);
   assert.deepEqual(report.discarded, ['docs/external.txt']);
 });
+
+test('boundary rejects a dangling source directory junction', async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'gpt-relay-boundary-dangling-'));
+  const outside = mkdtempSync(path.join(tmpdir(), 'gpt-relay-boundary-dangling-outside-'));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  });
+  const junction = path.join(root, 'docs');
+  try {
+    symlinkSync(outside, junction, 'junction');
+  } catch (error) {
+    t.skip(`junction unavailable: ${error.code}`);
+    return;
+  }
+  rmSync(outside, { recursive: true, force: true });
+  const execution = await new IsolatedCopyWorkspaceBoundary().prepare({
+    cwd: root,
+    task: {
+      delegated_scope: { allowed_changes: ['docs/**'], forbidden_changes: ['secrets/**'] },
+      authorization: { credentials: false, destructive_operations: false }
+    }
+  });
+  mkdirSync(path.join(execution.cwd, 'docs'), { recursive: true });
+  writeFileSync(path.join(execution.cwd, 'docs', 'result.txt'), 'agent');
+  const report = await execution.finalize({ success: true });
+  assert.deepEqual(report.applied, []);
+  assert.deepEqual(report.discarded, ['docs/result.txt']);
+});
