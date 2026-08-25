@@ -4,6 +4,7 @@ import { getEventListeners } from 'node:events';
 import path from 'node:path';
 import test from 'node:test';
 
+import { RelayPipeline } from '../lib/relay/pipeline.mjs';
 import { RuntimeService } from '../lib/runtime/service.mjs';
 import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
 
