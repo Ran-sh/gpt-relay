@@ -245,3 +245,56 @@ test('daemon registers an executor PID after the session is announced', async (t
   assert.equal(registrations[0].pid, 4242);
   assert.equal(registrations[0].session.session_id, 'S-pid');
 });
+
+test('daemon resumes a waiting workflow from its durable checkpoint after restart', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  const firstExecutor = new FakeExecutor({
+    capabilities: ['local.shell', 'local.test'],
+    events: [
+      { id: 'session-1', type: 'thread.started', thread_id: 'S-restart' },
+      { id: 'done-1', type: 'turn.completed' }
+    ],
+    result: { status: 'PARTIAL', summary: 'Need user choice', session_id: 'S-restart' }
+  });
+  const firstRegistry = new ExecutorRegistry();
+  firstRegistry.register(firstExecutor);
+  const firstDaemon = new WorkflowDaemon({
+    store,
+    registry: firstRegistry,
+    decisionRunner: new ScriptedDecisionRunner([{ decision: 'ASK_HUMAN', reason: 'Choose a mode' }]),
+    primaryCapabilities: ['reasoning'],
+    validateResult: async (result) => ({ valid: true, acceptance_met: result.status === 'PASS' })
+  });
+  const waiting = await firstDaemon.run(task(), { workspace_id: 'WS-restart', cwd: process.cwd() });
+  assert.equal(waiting.state, 'WAITING_FOR_HUMAN');
+  const stored = store.getWorkflow(waiting.workflow_run_id);
+  assert.equal(stored.checkpoint.attempt_count, 1);
+  assert.equal(stored.checkpoint.resume_session_id, 'S-restart');
+  assert.equal(stored.task.id, 'T-304');
+
+  const resumedExecutor = new FakeExecutor({
+    capabilities: ['local.shell', 'local.test'],
+    events: [
+      { id: 'session-2', type: 'thread.started', thread_id: 'S-restart' },
+      { id: 'done-2', type: 'turn.completed' }
+    ],
+    result: { status: 'PASS', summary: 'Choice applied', session_id: 'S-restart' }
+  });
+  const resumedRegistry = new ExecutorRegistry();
+  resumedRegistry.register(resumedExecutor);
+  const resumedDaemon = new WorkflowDaemon({
+    store,
+    registry: resumedRegistry,
+    decisionRunner: new ScriptedDecisionRunner([{ decision: 'COMPLETE', reason: 'Validated' }]),
+    primaryCapabilities: ['reasoning'],
+    validateResult: async (result) => ({ valid: true, acceptance_met: result.status === 'PASS' })
+  });
+  const completed = await resumedDaemon.resume(waiting.workflow_run_id, {
+    type: 'human.replied', response: 'Use mode A'
+  });
+  assert.equal(completed.state, 'COMPLETED');
+  assert.equal(completed.attempts, 2);
+  assert.deepEqual(resumedExecutor.stats(), { starts: 0, resumes: 1, cancels: 0 });
+  assert.equal(store.getWorkflow(waiting.workflow_run_id).state, 'COMPLETED');
+});
