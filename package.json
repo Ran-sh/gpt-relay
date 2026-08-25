@@ -1,7 +1,7 @@
 {
   "name": "@ran-sh/gpt-relay",
-  "version": "2.0.0",
-  "private": true,
+  "version": "2.4.0",
+  "description": "GPT-first durable workflow relay with audited decisions and multi-agent executors",
   "type": "module",
   "bin": {
     "gpt-relay": "./bin/gpt-relay.mjs",
@@ -10,7 +10,8 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=lib/**/*.mjs --test-coverage-exclude=lib/path-policy.mjs --test-coverage-lines=80 --test-coverage-functions=80 test/v2-*.test.mjs",
-    "validate:examples": "node validator/validate-contract.mjs task examples/contracts/task-contract.example.json && node validator/validate-contract.mjs result examples/contracts/result-contract.example.json"
+    "validate:examples": "node validator/validate-contract.mjs task examples/contracts/task-contract.example.json && node validator/validate-contract.mjs result examples/contracts/result-contract.example.json",
+    "prepublishOnly": "npm test && npm run test:coverage && npm run validate:examples"
   },
   "files": [
     "bin/",
@@ -23,5 +24,17 @@
   ],
   "engines": {
     "node": ">=24"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ran-sh/gpt-relay.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Ran-sh/gpt-relay/issues"
+  },
+  "homepage": "https://github.com/Ran-sh/gpt-relay#readme",
+  "keywords": ["agents", "workflow", "codex", "claude", "sqlite"],
+  "publishConfig": {
+    "access": "public"
   }
 }

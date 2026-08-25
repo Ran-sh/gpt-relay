@@ -4,7 +4,7 @@ GPT-first autonomous relay and durable workflow control plane.
 
 GPT Relay keeps the primary GPT in charge of reasoning, planning, review, and acceptance. It delegates only a concrete capability gap to a compatible executor, persists the executor evidence, and automatically returns a bounded result packet for the next decision.
 
-Current version: **2.0.0 foundation**
+Current version: **2.4.0**
 
 ## What changed from Agent Workflow
 
@@ -18,6 +18,8 @@ Current version: **2.0.0 foundation**
 - same-session `FOLLOW_UP`, new-attempt `RETRY`, and validated `COMPLETE`;
 - a Codex JSONL adapter with structured-terminal and resume identity checks;
 - a runtime status / Attention / events CLI.
+- audited OpenAI Responses API decisions, durable service leases/jobs, and restart continuation;
+- Claude Code plus Codex executors, filesystem/Git/GitHub sources, notifications, DAG barriers, remote runners, schedules, and a read-only Watch API.
 
 The legacy `agent-workflow` command remains available.
 
@@ -63,6 +65,7 @@ npm test
 node bin/gpt-relay.mjs runtime init --db .gpt-relay/runtime.sqlite
 node bin/gpt-relay.mjs runtime status --db .gpt-relay/runtime.sqlite
 node bin/gpt-relay.mjs task validate-vnext examples/contracts/task-contract-vnext.example.json
+node bin/gpt-relay.mjs doctor codex
 ```
 
 Inspect open Attention and recent control events:
@@ -72,7 +75,14 @@ node bin/gpt-relay.mjs runtime attention --db .gpt-relay/runtime.sqlite
 node bin/gpt-relay.mjs runtime events --db .gpt-relay/runtime.sqlite --workflow <workflow-run-id> --control-only
 ```
 
-The programmatic runtime is composed from `WorkflowDaemon`, `SQLiteRuntimeStore`, `RelayPipeline`, `ExecutorRegistry`, an executor adapter, and a typed decision runner.
+Start one durable worker after setting `OPENAI_API_KEY`:
+
+```bash
+node bin/gpt-relay.mjs source scan-file examples/contracts/task-contract-vnext.example.json --db .gpt-relay/runtime.sqlite
+node bin/gpt-relay.mjs service start --db .gpt-relay/runtime.sqlite
+```
+
+The worker uses a single-writer lease, recovers running jobs on clean shutdown, resumes persisted checkpoints after human/approval input, and sends only bounded decision packets to the model.
 
 ## Compatibility command
 
@@ -90,7 +100,7 @@ Task Contract vNext fields are additive. Legacy v1.9 contracts still validate un
 
 ## Project status
 
-Implemented in the v2.0 foundation:
+Implemented through v2.4:
 
 - contracts, authorization, capability gap, state transitions;
 - durable event / attempt / session / Attention storage;
@@ -98,9 +108,11 @@ Implemented in the v2.0 foundation:
 - FakeExecutor and deterministic registry;
 - Codex non-interactive JSONL adapter;
 - bounded state packet and automatic follow-up loop;
-- runtime query CLI and vNext validation.
+- runtime query/operator/service CLI and vNext validation;
+- audited production decisions, durable job/lease recovery, notifications and observers;
+- Claude/Codex adapters, signed GitHub deliveries, DAG barriers, remote runners, schedules, and a read-only Watch API.
 
-Next milestones are long-running service packaging, production GPT decision integration, ZCode/Claude adapters, external GitHub/webhook sources, and only later parallel barriers or a watch GUI. See [docs/roadmap.md](docs/roadmap.md).
+ZCode Desktop does not currently expose a documented non-interactive structured CLI protocol, so no fabricated adapter is shipped. See [docs/roadmap.md](docs/roadmap.md).
 
 ## Reference projects
 

@@ -6,30 +6,32 @@ Implemented: vNext Task/Authorization/Decision contracts, capability gap, states
 
 Long-running OS service packaging and production model credentials remain deployment choices outside the offline test suite.
 
-## v2.1 — production auto-continue
+## v2.1 — production auto-continue (implemented)
 
 - audited production GPT decision provider;
 - daemon service lifecycle, restart hooks, and notifications;
 - filesystem/Git observer service entry point;
 - approval/human reply commands;
 - controlled live Codex smoke job.
-- optional OS-native/container boundary providers stronger than the built-in isolated-copy boundary.
+- the built-in fail-closed isolated-copy boundary remains replaceable by a host-provided stronger boundary.
 
-## v2.2 — multi-executor
+## v2.2 — multi-executor (implemented where a verifiable CLI protocol exists)
 
-- ZCode and Claude adapters behind the existing interface;
+- Claude and Codex adapters behind the existing interface;
 - deterministic priorities and readiness snapshots;
 - adapter conformance and resume tests;
 - canonical Attention mapping.
 
 Adding an executor should not change the core state machine.
 
-## v2.3 — external events
+ZCode Desktop currently documents an interactive desktop Agent but not a supported non-interactive structured CLI protocol. GPT Relay therefore does not invent an unsafe adapter. The registry interface is the extension point when such a protocol becomes available.
+
+## v2.3 — external events (implemented)
 
 - GitHub CI/PR, filesystem, and signed webhook sources;
 - durable external cursors and source-specific dedupe;
 - Attention notification transports.
 
-## v2.4+
+## v2.4 — advanced runtime (implemented)
 
-Parallel barriers, remote runners, schedules, and an optional watch GUI only after operational history and fault-injection coverage exist.
+Durable DAG barriers, generation-fenced remote runner jobs, idempotent schedules, and a bounded read-only Watch HTTP API are available. A graphical frontend remains optional and is intentionally not part of the headless npm package.
