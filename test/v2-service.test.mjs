@@ -104,3 +104,73 @@ test('runtime service recovers jobs and drains workflows in a single ordered cyc
   assert.equal(store.getJob('J-cycle').status, 'COMPLETED');
   service.close();
 });
+
+test('a new service atomically recovers a RUNNING job after the crashed owner lease expires', async (t) => {
+  let now = Date.parse('2026-08-25T00:00:00Z');
+  const store = new SQLiteRuntimeStore(':memory:', { now: () => new Date(now).toISOString() });
+  t.after(() => store.close());
+  store.enqueueJob({ job_id: 'J-orphan', workflow_run_id: 'W-orphan', type: 'workflow.resume', payload: {} });
+
+  const crashed = new RuntimeService({
+    store,
+    ownerId: 'crashed-owner',
+    leaseTtlMs: 1_000,
+    pipeline: { async drainPending() { return { routed: 0, failed: 0 }; } },
+    onJob: async () => new Promise(() => {})
+  });
+  const claimed = store.claimJob('J-orphan', 'crashed-owner', { ttlMs: 1_000 });
+  assert.equal(claimed.status, 'RUNNING');
+
+  now += 1_001;
+  const recovered = new RuntimeService({
+    store,
+    ownerId: 'replacement-owner',
+    leaseTtlMs: 1_000,
+    pipeline: { async drainPending() { return { routed: 0, failed: 0 }; } },
+    onJob: async (job) => ({ recovered: job.owner_id === 'replacement-owner' })
+  });
+  const report = await recovered.runOnce();
+
+  assert.equal(report.jobs_completed, 1);
+  assert.equal(store.getJob('J-orphan').status, 'COMPLETED');
+  assert.deepEqual(store.getJob('J-orphan').result, { recovered: true });
+  assert.equal(store.getJob('J-orphan').attempts, 2);
+  recovered.close();
+  void crashed;
+});
+
+test('runtime service renews its service and job leases throughout a long onJob call', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  store.enqueueJob({ job_id: 'J-long', workflow_run_id: 'W-long', type: 'workflow.resume', payload: {} });
+  let finishJob;
+  let jobStarted;
+  const started = new Promise((resolve) => { jobStarted = resolve; });
+  const service = new RuntimeService({
+    store,
+    ownerId: 'long-owner',
+    leaseTtlMs: 100,
+    pipeline: { async drainPending() { return { routed: 0, failed: 0 }; } },
+    onJob: async () => {
+      jobStarted();
+      return new Promise((resolve) => { finishJob = resolve; });
+    }
+  });
+  t.after(() => service.close());
+
+  const running = service.runOnce();
+  await started;
+  await new Promise((resolve) => setTimeout(resolve, 225));
+  assert.throws(() => new RuntimeService({
+    store,
+    ownerId: 'competing-owner',
+    leaseTtlMs: 100,
+    pipeline: { async drainPending() { return { routed: 0, failed: 0 }; } }
+  }), /lease is already held/);
+  assert.equal(store.getJob('J-long').owner_id, 'long-owner');
+  assert.equal(store.getJob('J-long').status, 'RUNNING');
+
+  finishJob({ done: true });
+  await running;
+  assert.equal(store.getJob('J-long').status, 'COMPLETED');
+});
