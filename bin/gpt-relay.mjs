@@ -17,6 +17,7 @@ import { FileContractObserver } from '../lib/relay/observer.mjs';
 import { createGitHubIngressServer } from '../lib/relay/github-ingress-server.mjs';
 import { GitHubWebhookSource } from '../lib/relay/github-webhook.mjs';
 import { RelayPipeline } from '../lib/relay/pipeline.mjs';
+import { SemanticClassifier } from '../lib/relay/semantic-classifier.mjs';
 import { SourceRegistry } from '../lib/relay/source-registry.mjs';
 import { WorkflowDaemon } from '../lib/runtime/daemon.mjs';
 import { ProcessSupervisor } from '../lib/runtime/process-supervisor.mjs';
@@ -289,6 +290,7 @@ async function source(command, args) {
   try {
     const pipeline = new RelayPipeline({
       store,
+      classifier: new SemanticClassifier(),
       route: createProductionRoute(store, { workspaceRoot: options.cwd ?? process.cwd() })
     });
     const observer = new FileContractObserver({ store, pipeline });
@@ -306,6 +308,7 @@ async function ingress(command, args) {
   const store = new SQLiteRuntimeStore(databasePath(options));
   const pipeline = new RelayPipeline({
     store,
+    classifier: new SemanticClassifier(),
     route: createProductionRoute(store, { workspaceRoot: options.cwd ?? process.cwd() })
   });
   const server = createGitHubIngressServer({
@@ -426,6 +429,7 @@ async function service(command, args) {
   });
   const pipeline = new RelayPipeline({
     store,
+    classifier: new SemanticClassifier(),
     route: createProductionRoute(store, { workspaceRoot: options.cwd ?? process.cwd() })
   });
   const runtime = new RuntimeService({
