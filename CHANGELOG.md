@@ -5,8 +5,9 @@
 - Renamed the primary package and command to GPT Relay while retaining the legacy `agent-workflow` CLI.
 - Added capability-gap delegation with separately enforced Authorization and bounded Delegated Scope Contracts.
 - Added a durable SQLite runtime for workflows, immutable attempts, executor sessions, canonical events, cursors, Attention, and artifacts.
-- Added trace/control event lanes, persist-before-route ordering, idempotent delivery, secret redaction, artifact spill, and generation fencing.
-- Added an executor registry, FakeExecutor scenarios, and a Codex JSONL adapter with structured-terminal and resume-session validation.
+- Added trace/control event lanes, an ordered durable outbox, workflow/attempt/generation-scoped identity, exact generation fencing, secret redaction, and artifact spill.
+- Added an executor registry, FakeExecutor scenarios, and a Codex JSONL adapter with structured-terminal, resume-session, minimal-environment, and isolated-copy workspace enforcement.
+- Added persisted PID reconciliation that converges lost sessions, attempts, workflows, and Attention after daemon restart.
 - Added bounded state packets, typed decisions, validated completion gates, and same-session automatic follow-up.
 - Added runtime status, Attention, event inspection, and vNext Task validation commands.
 - Documented the OpenMausBot assessment and agent information-flow optimization.
