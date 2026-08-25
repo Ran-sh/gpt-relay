@@ -13,6 +13,8 @@ import { ExecutorRegistry } from '../lib/executors/registry.mjs';
 import { AuditedDecisionRunner } from '../lib/orchestrator/audited-decision-runner.mjs';
 import { OpenAIDecisionProvider } from '../lib/orchestrator/openai-decision-provider.mjs';
 import { FileContractObserver } from '../lib/relay/observer.mjs';
+import { createGitHubIngressServer } from '../lib/relay/github-ingress-server.mjs';
+import { GitHubWebhookSource } from '../lib/relay/github-webhook.mjs';
 import { RelayPipeline } from '../lib/relay/pipeline.mjs';
 import { SourceRegistry } from '../lib/relay/source-registry.mjs';
 import { WorkflowDaemon } from '../lib/runtime/daemon.mjs';
@@ -206,6 +208,23 @@ async function source(command, args) {
     print(report, options.json, (value) => `${value.source.source_id} ${value.source.enabled ? 'enabled' : 'disabled'}`);
     return;
   }
+  if (command === 'add-github') {
+    const sourceId = options._[0];
+    if (!sourceId || !options['secret-env']) {
+      fail('source add-github requires <source-id> --secret-env <environment-variable>');
+    }
+    const report = withStore(options, (store) => ({
+      source: store.upsertSourceConfig({
+        source_id: sourceId,
+        type: 'github',
+        enabled: true,
+        config: {},
+        secret_env: { webhook: options['secret-env'] }
+      })
+    }));
+    print(report, options.json, (value) => `${value.source.source_id} r${value.source.revision}`);
+    return;
+  }
   if (['add-file', 'add-git'].includes(command)) {
     const [sourceId, configuredPath] = options._;
     if (!sourceId || !configuredPath) fail(`source ${command} requires <source-id> <path>`);
@@ -235,6 +254,48 @@ async function source(command, args) {
     print(report, options.json, (value) => value.event ? `${value.status} ${value.event.type}` : value.status);
   } finally {
     store.close();
+  }
+}
+
+async function ingress(command, args) {
+  if (command !== 'github') fail(`unknown ingress command: ${command ?? '(missing)'}`);
+  const options = parseOptions(args, { flags: ['json'] });
+  const store = new SQLiteRuntimeStore(databasePath(options));
+  const pipeline = new RelayPipeline({
+    store,
+    route: createProductionRoute(store, { workspaceRoot: options.cwd ?? process.cwd() })
+  });
+  const server = createGitHubIngressServer({
+    configResolver: async (sourceId) => {
+      const sourceConfig = store.getSourceConfig(sourceId);
+      return sourceConfig?.type === 'github' ? sourceConfig : null;
+    },
+    secretResolver: async (_sourceId, sourceConfig) => process.env[sourceConfig.secret_env?.webhook],
+    sourceFactory: (sourceOptions) => new GitHubWebhookSource({ ...sourceOptions, store, pipeline }),
+    contextResolver: async (sourceId) => ({
+      workspace_id: options.workspace ?? 'default', source_id: sourceId
+    }),
+    maxBytes: options['max-bytes'] ? Number(options['max-bytes']) : 1_000_000
+  });
+  const host = options.host ?? '127.0.0.1';
+  const port = options.port ? Number(options.port) : 8788;
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(port, host, resolve);
+  });
+  const address = server.address();
+  print({ address }, options.json, (value) => `GitHub ingress listening on ${value.address.address}:${value.address.port}`);
+  const abort = new AbortController();
+  const stop = () => abort.abort();
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+  try {
+    await new Promise((resolve) => abort.signal.addEventListener('abort', resolve, { once: true }));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+    process.removeListener('SIGINT', stop);
+    process.removeListener('SIGTERM', stop);
   }
 }
 
@@ -368,9 +429,11 @@ Usage:
   gpt-relay workflow resume <run-id> [--reason <value>] [--db <file>] [--json]
   gpt-relay source scan-file <task.json> [--cwd <workspace>] [--db <file>] [--json]
   gpt-relay source add-file|add-git <source-id> <path> [--db <file>] [--json]
+  gpt-relay source add-github <source-id> --secret-env <name> [--db <file>] [--json]
   gpt-relay source list|enable|disable [source-id] [--db <file>] [--json]
   gpt-relay watch <run-id> [--db <file>] [--json]
   gpt-relay watch serve [--host <address>] [--port <n>] [--allow-remote] [--db <file>]
+  gpt-relay ingress github [--host <address>] [--port <n>] [--db <file>]
   gpt-relay doctor codex [--live] [--cli <file>] [--cli-arg <value>] [--json]
   gpt-relay service once|start [--db <file>] [--model <id>] [--poll <ms>] [--json]
   gpt-relay task validate-vnext <file> [--json]
@@ -396,6 +459,8 @@ if (args[0] === '--version' || args[0] === '-v') {
   await source(args[1], args.slice(2));
 } else if (args[0] === 'watch') {
   await watch(args[1], args.slice(2));
+} else if (args[0] === 'ingress') {
+  await ingress(args[1], args.slice(2));
 } else if (args[0] === 'doctor') {
   await doctor(args[1], args.slice(2));
 } else if (args[0] === 'service') {
