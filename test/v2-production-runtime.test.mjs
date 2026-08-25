@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { createRuntimeJobHandler } from '../lib/runtime/production-runtime.mjs';
+import { DEFAULT_PRIMARY_CAPABILITIES, createRuntimeJobHandler } from '../lib/runtime/production-runtime.mjs';
+import { computeCapabilityGap } from '../lib/workflow/capability-gap.mjs';
 import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
 
 test('production job handler executes observed task contracts and durable resumptions', async (t) => {
@@ -44,4 +45,9 @@ test('production job handler persists approval denial without invoking an execut
   assert.equal(result.state, 'FAILED');
   assert.equal(store.getWorkflow('W-denied').reason, 'not authorized');
   await assert.rejects(() => handler({ type: 'unknown', workflow_run_id: 'W-denied', payload: {} }), /unsupported/i);
+});
+
+test('production primary owns reasoning so the example delegates only executable capabilities', () => {
+  const required = ['reasoning', 'local.shell', 'local.test'];
+  assert.deepEqual(computeCapabilityGap(required, DEFAULT_PRIMARY_CAPABILITIES), ['local.shell', 'local.test']);
 });
