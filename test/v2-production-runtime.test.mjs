@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import {
   DEFAULT_PRIMARY_CAPABILITIES,
+  createProductionNotifier,
   createProductionRoute,
   createRuntimeJobHandler
 } from '../lib/runtime/production-runtime.mjs';
@@ -119,6 +120,21 @@ test('production route wakes a linked verifying workflow once for an external co
   assert.equal(jobs.length, 1);
   assert.equal(jobs[0].type, 'workflow.resume_requested');
   assert.equal(jobs[0].payload.trigger.type, 'github.ci_failed');
+});
+
+test('production notifier durably emits redacted Attention to JSONL', async (t) => {
+  const temporary = mkdtempSync(path.join(tmpdir(), 'gpt-relay-notify-'));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  const file = path.join(temporary, 'attention.jsonl');
+  const notifier = createProductionNotifier(store, { jsonlFile: file, console: false });
+
+  assert.equal(notifier.enqueue({
+    attention_id: 'ATT-notify', type: 'APPROVAL', message: 'Publish', token: 'secret-value'
+  }), 1);
+  assert.deepEqual(await notifier.drain(), { delivered: 1, failed: 0 });
+  assert.doesNotMatch(readFileSync(file, 'utf8'), /secret-value/);
 });
 
 test('reclaimed task job never repeats a completed workflow or uncertain side effects', async (t) => {
