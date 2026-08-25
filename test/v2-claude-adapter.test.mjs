@@ -58,10 +58,12 @@ test('Claude adapter streams session events before the process exits', async () 
   });
   const handle = await adapter.start(task, { cwd: process.cwd() });
   const iterator = adapter.events(handle)[Symbol.asyncIterator]();
+  let timeout;
   const first = await Promise.race([
     iterator.next(),
-    new Promise((resolve) => setTimeout(() => resolve({ timedOut: true }), 3_000))
+    new Promise((resolve) => { timeout = setTimeout(() => resolve({ timedOut: true }), 3_000); })
   ]);
+  clearTimeout(timeout);
 
   if (first.timedOut) await adapter.cancel(handle);
   assert.equal(first.timedOut, undefined, 'session event must be observable while the child is still alive');
