@@ -89,3 +89,43 @@ test('runtime CLI validates a vNext task without treating capability as authoriz
   assert.equal(version.status, 0, version.stderr);
   assert.equal(version.stdout.trim(), '2.0.0');
 });
+
+test('CLI resolves human and approval Attention idempotently and scans a task source', (t) => {
+  const temporary = mkdtempSync(path.join(tmpdir(), 'gpt-relay-command-cli-'));
+  t.after(() => rmSync(temporary, { recursive: true, force: true }));
+  const database = path.join(temporary, 'relay.sqlite');
+  const store = new SQLiteRuntimeStore(database);
+  store.saveWorkflow({ run_id: 'W-human-cli', objective: 'Wait', state: 'WAITING_FOR_HUMAN' });
+  store.createAttention({
+    attention_id: 'ATT-human-cli', workflow_run_id: 'W-human-cli', type: 'DECISION', message: 'Answer'
+  });
+  store.saveWorkflow({ run_id: 'W-approval-cli', objective: 'Approve', state: 'WAITING_FOR_APPROVAL' });
+  store.createAttention({
+    attention_id: 'ATT-approval-cli', workflow_run_id: 'W-approval-cli', type: 'APPROVAL', message: 'Approve'
+  });
+  store.close();
+
+  const reply = run([
+    'human', 'reply', 'ATT-human-cli', '--text', 'Mode A', '--db', database, '--json'
+  ]);
+  assert.equal(reply.status, 0, reply.stderr);
+  assert.equal(JSON.parse(reply.stdout).attention.status, 'RESOLVED');
+
+  const grant = run([
+    'approval', 'grant', 'ATT-approval-cli', '--reason', 'approved', '--db', database, '--json'
+  ]);
+  assert.equal(grant.status, 0, grant.stderr);
+  assert.equal(JSON.parse(grant.stdout).attention.response_type, 'approval.granted');
+
+  const observed = run([
+    'source', 'scan-file', path.join(root, 'examples', 'contracts', 'task-contract-vnext.example.json'),
+    '--db', database, '--json'
+  ]);
+  assert.equal(observed.status, 0, observed.stderr);
+  assert.equal(JSON.parse(observed.stdout).event.type, 'task.created');
+
+  const reopened = new SQLiteRuntimeStore(database);
+  t.after(() => reopened.close());
+  assert.equal(reopened.listJobs({ status: 'PENDING' }).length, 2);
+  assert.equal(reopened.listEvents({ workflowRunId: 'W-T-104' }).length, 1);
+});
