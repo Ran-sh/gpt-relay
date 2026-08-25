@@ -78,6 +78,13 @@ test('runtime CLI validates a vNext task without treating capability as authoriz
   assert.equal(valid.status, 0, valid.stderr);
   assert.deepEqual(JSON.parse(valid.stdout), { valid: true, errors: [] });
 
+  const canonical = spawnSync(process.execPath, [
+    path.join(root, 'validator', 'validate-contract.mjs'),
+    'task',
+    path.join(root, 'examples', 'contracts', 'task-contract-vnext.example.json')
+  ], { cwd: root, encoding: 'utf8' });
+  assert.equal(canonical.status, 0, canonical.stderr || canonical.stdout);
+
   const version = run(['--version']);
   assert.equal(version.status, 0, version.stderr);
   assert.equal(version.stdout.trim(), '2.0.0');
