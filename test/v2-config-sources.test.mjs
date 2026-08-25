@@ -67,13 +67,15 @@ test('workspace and workflow config resolve fail-closed', () => {
       allowed_changes: ['src/feature/**']
     },
     task: {
-      authorization: { shell: true, network: true, git_push: true },
+      authorization: { shell: true, network: true, git_push: true, credentials: true },
       budget: { tokens: 3_000 },
       allowed_changes: ['src/feature/api.mjs']
     }
   });
 
-  assert.deepEqual(effective.authorization, { shell: false, network: false, git_push: false });
+  assert.deepEqual(effective.authorization, {
+    shell: false, network: false, git_push: false, credentials: false
+  });
   assert.deepEqual(effective.budget, { tokens: 2_000, cost_usd: 5 });
   assert.deepEqual(effective.allowed_changes, ['src/feature/api.mjs']);
   assert.throws(() => resolveEffectiveConfig({
@@ -82,7 +84,9 @@ test('workspace and workflow config resolve fail-closed', () => {
     task: { allowed_changes: ['docs/readme.md'] }
   }), /expand.*scope/i);
   assert.throws(() => resolveEffectiveConfig({
-    workspace, workflow: {}, task: { allowed_changes: ['src/**'] }
+    workspace,
+    workflow: { allowed_changes: ['src/feature/**'] },
+    task: { allowed_changes: ['src/**'] }
   }), /expand.*scope/i);
 });
 
