@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-import { CodexAdapter, renderCodexPrompt } from '../lib/executors/codex.mjs';
+import { buildChildEnvironment, CodexAdapter, renderCodexPrompt } from '../lib/executors/codex.mjs';
 
 const fixture = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url));
 
@@ -41,6 +41,12 @@ async function collectEvents(adapter, handle) {
   return events;
 }
 
+const testBoundary = {
+  async prepare({ cwd }) {
+    return { cwd, async finalize() {} };
+  }
+};
+
 test('Codex prompt contains only the delegated scope and a bounded handoff', () => {
   const prompt = renderCodexPrompt(task(), {
     handoff: 'Previous attempt: one Windows test failed.',
@@ -55,7 +61,7 @@ test('Codex prompt contains only the delegated scope and a bounded handoff', () 
 });
 
 test('CodexAdapter detects the CLI and collects structured terminal evidence', async () => {
-  const adapter = new CodexAdapter({ cli: process.execPath, cliArgs: [fixture] });
+  const adapter = new CodexAdapter({ cli: process.execPath, cliArgs: [fixture], workspaceBoundary: testBoundary });
   assert.deepEqual(await adapter.detect(), {
     ready: true,
     reason: null,
@@ -86,7 +92,8 @@ test('CodexAdapter rejects exit-zero output without a structured terminal event'
   const adapter = new CodexAdapter({
     cli: process.execPath,
     cliArgs: [fixture],
-    environment: { FAKE_CODEX_MODE: 'invalid-json' }
+    environment: { FAKE_CODEX_MODE: 'invalid-json' },
+    workspaceBoundary: testBoundary
   });
   const handle = await adapter.start(task(), { cwd: process.cwd() });
   const events = await collectEvents(adapter, handle);
@@ -101,7 +108,8 @@ test('CodexAdapter fails closed when resume returns a different thread', async (
   const adapter = new CodexAdapter({
     cli: process.execPath,
     cliArgs: [fixture],
-    environment: { FAKE_CODEX_THREAD_ID: 'S-unexpected' }
+    environment: { FAKE_CODEX_THREAD_ID: 'S-unexpected' },
+    workspaceBoundary: testBoundary
   });
   const handle = await adapter.resume(
     { session_id: 'S-expected' },
@@ -114,4 +122,28 @@ test('CodexAdapter fails closed when resume returns a different thread', async (
   assert.equal(result.status, 'FAIL');
   assert.equal(result.session_lost, true);
   assert.match(result.summary, /expected S-expected.*received S-unexpected/);
+});
+
+test('CodexAdapter fails closed when writable scope lacks an enforceable boundary', async () => {
+  const adapter = new CodexAdapter({ cli: process.execPath, cliArgs: [fixture] });
+  await assert.rejects(
+    adapter.start(task(), { cwd: process.cwd() }),
+    /enforceable workspace boundary/
+  );
+});
+
+test('child environment removes credentials when authorization denies them', () => {
+  const childEnvironment = buildChildEnvironment(task(), {
+    PATH: 'safe-path',
+    OPENAI_API_KEY: 'secret',
+    GITHUB_TOKEN: 'secret',
+    CUSTOM_VALUE: 'kept'
+  }, { FAKE_CODEX_MODE: 'test', API_TOKEN: 'secret' });
+
+  assert.equal(childEnvironment.PATH, 'safe-path');
+  assert.equal(childEnvironment.CUSTOM_VALUE, 'kept');
+  assert.equal(childEnvironment.FAKE_CODEX_MODE, 'test');
+  assert.equal(childEnvironment.OPENAI_API_KEY, undefined);
+  assert.equal(childEnvironment.GITHUB_TOKEN, undefined);
+  assert.equal(childEnvironment.API_TOKEN, undefined);
 });
