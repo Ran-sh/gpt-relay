@@ -6,6 +6,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { validateTaskVNext } from '../lib/contracts/v2.mjs';
+import { loadConfigFile, resolveEffectiveConfig } from '../lib/config/loader.mjs';
 import { runCodexSmoke } from '../lib/doctor/codex-smoke.mjs';
 import { ClaudeAdapter } from '../lib/executors/claude.mjs';
 import { CodexAdapter } from '../lib/executors/codex.mjs';
@@ -141,6 +142,19 @@ function task(command, args) {
   const report = { valid: errors.length === 0, errors };
   print(report, options.json, (result) => result.valid ? 'VALID' : `INVALID\n- ${result.errors.join('\n- ')}`);
   if (!report.valid) process.exitCode = 1;
+}
+
+function config(command, args) {
+  if (command !== 'resolve') fail(`unknown config command: ${command ?? '(missing)'}`);
+  const options = parseOptions(args, { flags: ['json'] });
+  const workspaceFile = options._[0];
+  if (!workspaceFile) fail('config resolve requires a Workspace config file');
+  const effective = resolveEffectiveConfig({
+    workspace: loadConfigFile(path.resolve(workspaceFile)),
+    workflow: options.workflow ? loadConfigFile(path.resolve(options.workflow)) : {},
+    task: options.task ? loadConfigFile(path.resolve(options.task)) : {}
+  });
+  print({ effective }, options.json, (value) => JSON.stringify(value.effective, null, 2));
 }
 
 function operatorCommand(kind, command, args) {
@@ -439,6 +453,7 @@ Usage:
   gpt-relay doctor codex [--live] [--cli <file>] [--cli-arg <value>] [--json]
   gpt-relay service once|start [--db <file>] [--model <id>] [--poll <ms>] [--json]
   gpt-relay task validate-vnext <file> [--json]
+  gpt-relay config resolve <workspace.json> [--workflow <file>] [--task <file>] [--json]
   gpt-relay --version
 
 The legacy agent-workflow command remains available for v1.x install/task/result workflows.`);
@@ -451,6 +466,8 @@ if (args[0] === '--version' || args[0] === '-v') {
   runtime(args[1], args.slice(2));
 } else if (args[0] === 'task') {
   task(args[1], args.slice(2));
+} else if (args[0] === 'config') {
+  config(args[1], args.slice(2));
 } else if (args[0] === 'human') {
   operatorCommand('human', args[1], args.slice(2));
 } else if (args[0] === 'approval') {
