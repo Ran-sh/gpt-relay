@@ -163,6 +163,27 @@ function operatorCommand(kind, command, args) {
   print(report, options.json, (value) => `${value.attention.attention_id} ${value.attention.status}`);
 }
 
+function workflow(command, args) {
+  if (command !== 'resume') fail(`unknown workflow command: ${command ?? '(missing)'}`);
+  const options = parseOptions(args, { flags: ['json'] });
+  const workflowRunId = options._[0];
+  if (!workflowRunId) fail('workflow resume requires a workflow run id');
+  const report = withStore(options, (store) => {
+    const current = store.getWorkflow(workflowRunId);
+    if (!current) fail(`unknown workflow: ${workflowRunId}`);
+    if (current.state !== 'PAUSED') fail(`workflow ${workflowRunId} is ${current.state}, expected PAUSED`);
+    const jobId = options['idempotency-key'] ?? `J-resume-${workflowRunId}`;
+    store.enqueueJob({
+      job_id: jobId,
+      workflow_run_id: workflowRunId,
+      type: 'workflow.resume_requested',
+      payload: { reason: options.reason ?? 'operator resume' }
+    });
+    return { job: store.getJob(jobId) };
+  });
+  print(report, options.json, (value) => `${value.job.job_id} ${value.job.status}`);
+}
+
 async function source(command, args) {
   if (command !== 'scan-file') fail(`unknown source command: ${command ?? '(missing)'}`);
   const options = parseOptions(args, { flags: ['json'] });
@@ -261,6 +282,7 @@ Usage:
   gpt-relay runtime events --workflow <id> [--db <file>] [--control-only] [--limit <n>] [--json]
   gpt-relay human reply <attention-id> --text <value> [--db <file>] [--json]
   gpt-relay approval grant|deny <attention-id> [--reason <value>] [--db <file>] [--json]
+  gpt-relay workflow resume <run-id> [--reason <value>] [--db <file>] [--json]
   gpt-relay source scan-file <task.json> [--cwd <workspace>] [--db <file>] [--json]
   gpt-relay doctor codex [--live] [--cli <file>] [--cli-arg <value>] [--json]
   gpt-relay service once|start [--db <file>] [--model <id>] [--poll <ms>] [--json]
@@ -281,6 +303,8 @@ if (args[0] === '--version' || args[0] === '-v') {
   operatorCommand('human', args[1], args.slice(2));
 } else if (args[0] === 'approval') {
   operatorCommand('approval', args[1], args.slice(2));
+} else if (args[0] === 'workflow') {
+  workflow(args[1], args.slice(2));
 } else if (args[0] === 'source') {
   await source(args[1], args.slice(2));
 } else if (args[0] === 'doctor') {

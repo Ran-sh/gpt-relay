@@ -61,7 +61,6 @@ test('runtime CLI initializes and queries durable status, attention, and events'
     session_id: 'S-cli',
     generation: 1
   });
-  store.saveWorkflow({ run_id: 'W-paused-cli', objective: 'Recover', state: 'PAUSED' });
   store.close();
 
   const status = run(['runtime', 'status', '--db', database, '--json']);
@@ -107,6 +106,7 @@ test('CLI resolves human and approval Attention idempotently and scans a task so
   store.createAttention({
     attention_id: 'ATT-approval-cli', workflow_run_id: 'W-approval-cli', type: 'APPROVAL', message: 'Approve'
   });
+  store.saveWorkflow({ run_id: 'W-paused-cli', objective: 'Recover', state: 'PAUSED' });
   store.close();
 
   const reply = run([
