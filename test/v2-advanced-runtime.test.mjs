@@ -20,6 +20,10 @@ test('workflow graph releases a barrier only after every dependency passes', (t)
   assert.deepEqual(graph.ready('W-graph').map((node) => node.node_id), ['B']);
   graph.complete('W-graph', 'B', { status: 'PASS' });
   assert.deepEqual(graph.ready('W-graph').map((node) => node.node_id), ['C']);
+  assert.throws(() => graph.create('W-cycle', [
+    { node_id: 'X', task: {}, depends_on: ['Y'] },
+    { node_id: 'Y', task: {}, depends_on: ['X'] }
+  ]), /cycle/i);
 });
 
 test('remote runner queue fences stale generations and duplicate results', (t) => {
