@@ -38,6 +38,31 @@ test('production job handler executes observed task contracts and durable resump
   assert.equal(calls[1][2].type, 'human.replied');
 });
 
+test('production job handler executes an inline scheduled task with its durable run identity', async () => {
+  const calls = [];
+  const handler = createRuntimeJobHandler({
+    daemon: {
+      async run(task, context) { calls.push([task, context]); return { state: 'COMPLETED' }; },
+      async resume() { throw new Error('unexpected resume'); }
+    },
+    cwd: 'C:/workspace'
+  });
+
+  const task = { id: 'T-scheduled', objective: 'Run maintenance' };
+  const result = await handler({
+    type: 'scheduled.task',
+    workflow_run_id: 'W-schedule-nightly',
+    payload: { occurrence_id: 'nightly@2026-08-25T00:00:00.000Z', task }
+  });
+
+  assert.equal(result.state, 'COMPLETED');
+  assert.deepEqual(calls, [[task, {
+    cwd: path.resolve('C:/workspace'),
+    workspace_id: 'W-schedule-nightly',
+    workflow_run_id: 'W-schedule-nightly'
+  }]]);
+});
+
 test('production job handler persists approval denial without invoking an executor', async (t) => {
   const store = new SQLiteRuntimeStore(':memory:');
   t.after(() => store.close());
