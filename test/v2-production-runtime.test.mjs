@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -11,7 +11,8 @@ import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
 test('production job handler executes observed task contracts and durable resumptions', async (t) => {
   const temporary = mkdtempSync(path.join(tmpdir(), 'gpt-relay-production-'));
   t.after(() => rmSync(temporary, { recursive: true, force: true }));
-  const file = path.join(temporary, 'task.json');
+  const file = path.join(temporary, 'docs', 'agent-tasks', 'task.json');
+  mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, JSON.stringify({ id: 'T-runtime' }));
   const calls = [];
   const daemon = {
@@ -21,13 +22,15 @@ test('production job handler executes observed task contracts and durable resump
   const handler = createRuntimeJobHandler({ daemon, cwd: temporary });
 
   assert.equal((await handler({
-    type: 'task.created', workflow_run_id: 'W-observed', payload: { path: file }
+    type: 'task.created', workflow_run_id: 'W-observed',
+    payload: { path: file, workspace_root: temporary }
   })).state, 'COMPLETED');
   assert.equal((await handler({
     type: 'human.replied', workflow_run_id: 'W-runtime', payload: { response: 'continue' }
   })).state, 'RUNNING');
   assert.equal(calls[0][0], 'run');
   assert.equal(calls[0][2].workflow_run_id, 'W-observed');
+  assert.equal(calls[0][2].cwd, temporary);
   assert.equal(calls[1][2].type, 'human.replied');
 });
 
