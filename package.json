@@ -1,6 +1,6 @@
 {
   "name": "@ran-sh/gpt-relay",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "GPT-first durable workflow relay with audited decisions and multi-agent executors",
   "type": "module",
   "bin": {

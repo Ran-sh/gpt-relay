@@ -10,6 +10,8 @@ The primary GPT owns the objective, capability analysis, repository-side work, e
 
 `RuntimeService` holds a renewable single-writer lease, reconciles executor processes, drains pending control events in order, and claims one durable continuation job per cycle. `WorkflowDaemon` checkpoints the Task Contract and bounded execution context so a human reply or approval can resume after a full process restart.
 
+`RuntimeHost` composes the production cycle in a fixed order: enabled persistent sources, due schedule occurrences, one runtime job, then durable Attention notification delivery. `SourceRegistry` constructs only filesystem/Git observers; GitHub sources are served by the signed, source-scoped HTTP ingress. Source secrets are environment-variable references, never stored values.
+
 `CodexAdapter` uses the non-interactive JSONL protocol. It treats a structured terminal event plus process exit as evidence; neither one is sufficient alone. Resume checks that the returned Codex thread ID equals the requested session. Credential-denied jobs receive a minimal environment and isolated home. Writable jobs default to `IsolatedCopyWorkspaceBoundary`: Git/runtime metadata and source symlinks are excluded, execution occurs in a temporary copy, and only successful regular-file changes matching allowed but not forbidden scopes are applied back. Deletions additionally require destructive authorization. A host can replace the boundary; explicitly disabling it refuses launch.
 
 Supported workflow states are `RUNNING`, `WAITING_FOR_EXECUTOR`, `WAITING_FOR_CAPABILITY`, `WAITING_FOR_APPROVAL`, `WAITING_FOR_HUMAN`, `VERIFYING`, `PAUSED`, `COMPLETED`, `FAILED`, and `CANCELLED`.
@@ -21,5 +23,7 @@ Executor PIDs are stored with RUNNING sessions. A fresh `ProcessSupervisor` hydr
 Core code depends on readiness, capabilities, start, optional resume, events, cancel, and result collection. Provider CLI flags and native messages stay in the adapter. Codex and Claude implement this contract. A new executor should be registered without changing the state machine or scheduler; unsupported desktop-only products are not assigned invented CLI protocols.
 
 Advanced runtime primitives are deliberately headless: `WorkflowGraph` releases barriers only after every dependency passes, `RemoteRunnerQueue` rotates tokens and generations when expired leases are recovered, `ScheduleEngine` stores occurrence IDs before advancing, and `RuntimeWatchServer` exposes bounded read-only health/workflow/event views on loopback by default.
+
+Validated final PASS results can be published atomically under `docs/agent-results/**`. Existing identical content is idempotent; a different existing contract or a symbolic-link boundary fails closed. Executor permission events stop the handle and create exact Attention. Approval resumes grant only the authorization named by that Attention while preserving the original policy for audit.
 
 Each workflow has attempt and action budgets. Repeated failure ends in Attention rather than an unbounded retry loop. Unknown decisions, events, and authorization actions fail closed.

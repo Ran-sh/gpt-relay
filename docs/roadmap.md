@@ -35,3 +35,14 @@ ZCode Desktop currently documents an interactive desktop Agent but not a support
 ## v2.4 — advanced runtime (implemented)
 
 Durable DAG barriers, generation-fenced remote runner jobs, idempotent schedules, and a bounded read-only Watch HTTP API are available. A graphical frontend remains optional and is intentionally not part of the headless npm package.
+
+## v2.5 — production wiring and information-flow hardening (implemented)
+
+- persistent file, Git, and GitHub source configuration with monotonic revisions and environment-only secret references;
+- fail-closed Workspace → Workflow → Task configuration resolution;
+- a production RuntimeHost that scans sources, emits schedule occurrences, runs durable jobs, and drains Attention notifications in order;
+- signed source-scoped GitHub HTTP ingress, linked-workflow external-event wakeups, and retry-safe delivery handling;
+- atomic managed Result Contract publication with idempotent content and conflict rejection;
+- permission events converted to precise durable Attention and approval-scoped authorization on resume;
+- workflow aggregate Watch queries plus cursor-resumable SSE on loopback by default;
+- conservative semantic fallback recorded as classification evidence, never directly executed as a high-risk action.

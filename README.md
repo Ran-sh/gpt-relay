@@ -4,7 +4,7 @@ GPT-first autonomous relay and durable workflow control plane.
 
 GPT Relay keeps the primary GPT in charge of reasoning, planning, review, and acceptance. It delegates only a concrete capability gap to a compatible executor, persists the executor evidence, and automatically returns a bounded result packet for the next decision.
 
-Current version: **2.4.0**
+Current version: **2.5.0**
 
 ## What changed from Agent Workflow
 
@@ -20,6 +20,7 @@ Current version: **2.4.0**
 - a runtime status / Attention / events CLI.
 - audited OpenAI Responses API decisions, durable service leases/jobs, and restart continuation;
 - Claude Code plus Codex executors, filesystem/Git/GitHub sources, notifications, DAG barriers, remote runners, schedules, and a read-only Watch API.
+- persistent source/config registries, a production RuntimeHost, scoped permission resume, atomic Result Contracts, signed GitHub HTTP ingress, SSE Watch, semantic fallback, and scheduled-task CLI.
 
 The legacy `agent-workflow` command remains available.
 
@@ -82,6 +83,16 @@ node bin/gpt-relay.mjs source scan-file examples/contracts/task-contract-vnext.e
 node bin/gpt-relay.mjs service start --db .gpt-relay/runtime.sqlite
 ```
 
+Configure persistent sources, schedules, GitHub ingress, and Watch:
+
+```bash
+node bin/gpt-relay.mjs source add-file tasks docs/agent-tasks/T-104.json --db .gpt-relay/runtime.sqlite
+node bin/gpt-relay.mjs source add-github github-main --secret-env GITHUB_WEBHOOK_SECRET --workflow W-T-104 --db .gpt-relay/runtime.sqlite
+node bin/gpt-relay.mjs ingress github --db .gpt-relay/runtime.sqlite
+node bin/gpt-relay.mjs watch serve --db .gpt-relay/runtime.sqlite
+node bin/gpt-relay.mjs schedule add nightly --every-ms 86400000 --task docs/agent-tasks/T-104.json --db .gpt-relay/runtime.sqlite
+```
+
 The worker uses a single-writer lease, recovers running jobs on clean shutdown, resumes persisted checkpoints after human/approval input, and sends only bounded decision packets to the model.
 
 ## Compatibility command
@@ -100,7 +111,7 @@ Task Contract vNext fields are additive. Legacy v1.9 contracts still validate un
 
 ## Project status
 
-Implemented through v2.4:
+Implemented through v2.5:
 
 - contracts, authorization, capability gap, state transitions;
 - durable event / attempt / session / Attention storage;
@@ -111,6 +122,10 @@ Implemented through v2.4:
 - runtime query/operator/service CLI and vNext validation;
 - audited production decisions, durable job/lease recovery, notifications and observers;
 - Claude/Codex adapters, signed GitHub deliveries, DAG barriers, remote runners, schedules, and a read-only Watch API.
+- persistent file/Git/GitHub source configuration and fail-closed Workspace → Workflow → Task config resolution;
+- GitHub HTTP ingress with workflow linkage, external-event wakeups, SSE resume cursors, and durable Attention notifications;
+- permission requests mapped to precise Attention, approval-scoped resume, and atomic managed Result Contract publication;
+- production RuntimeHost composition for observers, schedules, jobs, and notifications.
 
 ZCode Desktop does not currently expose a documented non-interactive structured CLI protocol, so no fabricated adapter is shipped. See [docs/roadmap.md](docs/roadmap.md).
 
