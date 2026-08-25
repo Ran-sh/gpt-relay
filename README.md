@@ -12,7 +12,7 @@ Current version: **2.0.0 foundation**
 
 - SQLite-backed workflows, attempts, sessions, events, cursors, Attention, and artifacts;
 - deterministic capability-gap matching, separate from authorization;
-- canonical control-plane events with durable idempotency;
+- canonical control-plane events with generation-aware idempotency and a durable outbox;
 - trace/control lanes so tool progress does not wake GPT on every line;
 - bounded state packets and typed decisions;
 - same-session `FOLLOW_UP`, new-attempt `RETRY`, and validated `COMPLETE`;
@@ -44,7 +44,7 @@ The relay uses two lanes:
 - `trace`: tool activity, streaming output, and progress. Stored for inspection, never a decision trigger by itself.
 - `control`: state changes, terminal events, validated results, approvals, human replies, and capability changes.
 
-Every canonical event is persisted before routing. Duplicate native events share an idempotency key and are consumed once. Each executor session has a monotonic generation; events from an older generation are rejected. Oversized payloads become `artifact://` references, and credential-shaped data is redacted before persistence or GPT context construction.
+Every canonical event is persisted before routing. Control events remain pending until delivery succeeds and can be drained after restart. Provider-native replays are deduplicated, while identical ID-less events from different attempts or generations remain distinct. Each executor session has a monotonic generation; events from an older generation are rejected. Oversized payloads become `artifact://` references, and credential-shaped data is redacted before persistence or GPT context construction.
 
 See [docs/information-flow.md](docs/information-flow.md).
 
@@ -53,6 +53,8 @@ See [docs/information-flow.md](docs/information-flow.md).
 - Node.js 24 or newer (`node:sqlite` is used by the durable runtime)
 - Git for legacy Task / Result handoffs
 - Codex CLI only for real Codex execution; all core tests use protocol fixtures and do not call a model
+
+Writable Codex jobs additionally require a trusted `workspaceBoundary` implementation. The adapter fails closed without one, filters credential-shaped environment variables when `authorization.credentials` is false, and never treats prompt text as a filesystem security boundary.
 
 ## Quick start
 
@@ -92,7 +94,7 @@ Implemented in the v2.0 foundation:
 
 - contracts, authorization, capability gap, state transitions;
 - durable event / attempt / session / Attention storage;
-- event normalization, redaction, dedupe, generation fencing, artifact spill;
+- event normalization, redaction, durable control outbox, generation-aware dedupe/fencing, artifact spill;
 - FakeExecutor and deterministic registry;
 - Codex non-interactive JSONL adapter;
 - bounded state packet and automatic follow-up loop;
@@ -116,7 +118,8 @@ The attachment named the project `OpenMausBoth`; the public repository is `OpenM
 - Delegated capabilities and writable paths cannot exceed the parent Task Contract.
 - A false Authorization flag cannot be overridden by executor readiness.
 - Raw progress never directly triggers a GPT decision turn.
-- A duplicate event cannot create a duplicate action proposal.
+- A delivered duplicate event cannot create a duplicate action proposal; undelivered control events remain replayable.
+- Writable executor work requires an enforceable workspace boundary supplied by the host.
 - A stale session generation cannot mutate the active attempt.
 - Exit code zero without a structured terminal event is failure.
 - A resumed Codex thread must return the expected thread ID.

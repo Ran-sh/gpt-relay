@@ -4,15 +4,17 @@ The primary GPT owns the objective, capability analysis, repository-side work, e
 
 `WorkflowDaemon` computes the capability gap, selects an executor through `ExecutorRegistry`, creates immutable attempts, collects normalized events, validates results, builds a bounded packet, and executes a typed decision.
 
-`RelayPipeline` normalizes provider events and writes them to `SQLiteRuntimeStore` before any router runs. Trace events stop there. Control events may reach the scheduler, state machine, Attention, or decision runner.
+`RelayPipeline` normalizes provider events and writes them to `SQLiteRuntimeStore` before any router runs. Trace events stop there. Control events use a durable routed marker: failed delivery remains pending, and `drainPending` replays the outbox after restart.
 
 `SQLiteRuntimeStore` is the runtime truth for workflow runs, attempts, sessions, events, cursors, Attention, and artifact metadata. Git remains the durable, portable ledger for Task / Result Contracts and auditable evidence.
 
-`CodexAdapter` uses the non-interactive JSONL protocol. It treats a structured terminal event plus process exit as evidence; neither one is sufficient alone. Resume checks that the returned Codex thread ID equals the requested session.
+`CodexAdapter` uses the non-interactive JSONL protocol. It treats a structured terminal event plus process exit as evidence; neither one is sufficient alone. Resume checks that the returned Codex thread ID equals the requested session. Credential-shaped environment variables are removed unless explicitly authorized. Writable jobs require a host-provided `workspaceBoundary` that runs Codex in an enforceably isolated workspace and applies only authorized output; without it the adapter refuses to launch.
 
 Supported workflow states are `RUNNING`, `WAITING_FOR_EXECUTOR`, `WAITING_FOR_CAPABILITY`, `WAITING_FOR_APPROVAL`, `WAITING_FOR_HUMAN`, `VERIFYING`, `PAUSED`, `COMPLETED`, `FAILED`, and `CANCELLED`.
 
 Every execution creates an immutable attempt. A same-task follow-up can reuse the provider session, but it receives a new attempt and a new monotonic session generation. Cross-task session reuse is forbidden.
+
+Executor PIDs are stored with RUNNING sessions. A fresh `ProcessSupervisor` hydrates those records, probes liveness, and marks missing processes LOST. The daemon registers and unregisters handles and closes attempt/workflow state with Attention when any executor lifecycle phase throws.
 
 Core code depends on readiness, capabilities, start, optional resume, events, cancel, and result collection. Provider CLI flags and native messages stay in the adapter. A new executor should be registered without changing the state machine or scheduler.
 

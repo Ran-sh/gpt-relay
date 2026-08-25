@@ -2,7 +2,7 @@
 
 ## v2.0 — autonomous relay foundation
 
-Implemented: vNext Task/Authorization/Decision contracts, capability gap, states, SQLite persistence, canonical events, trace/control lanes, redaction, dedupe, generation fencing, FakeExecutor, Codex adapter, bounded state packets, automatic follow-up, runtime CLI, and v1.9 compatibility.
+Implemented: vNext Task/Authorization/Decision contracts, capability gap, states, SQLite persistence, canonical events, trace/control lanes, redaction, durable control outbox, generation fencing, process/session restart reconciliation, FakeExecutor, fail-closed Codex adapter boundary, bounded state packets, automatic follow-up, runtime CLI, and v1.9 compatibility.
 
 Long-running OS service packaging and production model credentials remain deployment choices outside the offline test suite.
 
@@ -13,6 +13,7 @@ Long-running OS service packaging and production model credentials remain deploy
 - filesystem/Git observer service entry point;
 - approval/human reply commands;
 - controlled live Codex smoke job.
+- production isolated-workspace boundary provider for writable Codex jobs.
 
 ## v2.2 — multi-executor
 
