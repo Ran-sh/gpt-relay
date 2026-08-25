@@ -14,6 +14,7 @@ import { AuditedDecisionRunner } from '../lib/orchestrator/audited-decision-runn
 import { OpenAIDecisionProvider } from '../lib/orchestrator/openai-decision-provider.mjs';
 import { FileContractObserver } from '../lib/relay/observer.mjs';
 import { RelayPipeline } from '../lib/relay/pipeline.mjs';
+import { SourceRegistry } from '../lib/relay/source-registry.mjs';
 import { WorkflowDaemon } from '../lib/runtime/daemon.mjs';
 import { ProcessSupervisor } from '../lib/runtime/process-supervisor.mjs';
 import {
@@ -22,8 +23,12 @@ import {
   createRuntimeJobHandler
 } from '../lib/runtime/production-runtime.mjs';
 import { RuntimeService } from '../lib/runtime/service.mjs';
+import { RuntimeHost } from '../lib/runtime/runtime-host.mjs';
+import { ResultContractService } from '../lib/runtime/result-contract-service.mjs';
+import { ScheduleEngine } from '../lib/runtime/scheduler-service.mjs';
 import { SessionRegistry } from '../lib/runtime/session-registry.mjs';
 import { SQLiteRuntimeStore } from '../lib/runtime/sqlite-store.mjs';
+import { RuntimeWatchServer } from '../lib/runtime/watch-server.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -185,8 +190,37 @@ function workflow(command, args) {
 }
 
 async function source(command, args) {
-  if (command !== 'scan-file') fail(`unknown source command: ${command ?? '(missing)'}`);
   const options = parseOptions(args, { flags: ['json'] });
+  if (command === 'list') {
+    const report = withStore(options, (store) => ({ sources: store.listSourceConfigs() }));
+    print(report, options.json, (value) => value.sources
+      .map((item) => `${item.source_id} ${item.type} ${item.enabled ? 'enabled' : 'disabled'} r${item.revision}`).join('\n'));
+    return;
+  }
+  if (['enable', 'disable'].includes(command)) {
+    const sourceId = options._[0];
+    if (!sourceId) fail(`source ${command} requires a source id`);
+    const report = withStore(options, (store) => ({
+      source: store.setSourceConfigEnabled(sourceId, command === 'enable')
+    }));
+    print(report, options.json, (value) => `${value.source.source_id} ${value.source.enabled ? 'enabled' : 'disabled'}`);
+    return;
+  }
+  if (['add-file', 'add-git'].includes(command)) {
+    const [sourceId, configuredPath] = options._;
+    if (!sourceId || !configuredPath) fail(`source ${command} requires <source-id> <path>`);
+    const report = withStore(options, (store) => ({
+      source: store.upsertSourceConfig({
+        source_id: sourceId,
+        type: command === 'add-file' ? 'file' : 'git',
+        enabled: true,
+        config: { path: configuredPath }
+      })
+    }));
+    print(report, options.json, (value) => `${value.source.source_id} r${value.source.revision}`);
+    return;
+  }
+  if (command !== 'scan-file') fail(`unknown source command: ${command ?? '(missing)'}`);
   const file = options._[0];
   if (!file) fail('source scan-file requires a task contract file');
   const store = new SQLiteRuntimeStore(databasePath(options));
@@ -201,6 +235,46 @@ async function source(command, args) {
     print(report, options.json, (value) => value.event ? `${value.status} ${value.event.type}` : value.status);
   } finally {
     store.close();
+  }
+}
+
+async function watch(command, args) {
+  const options = parseOptions(args, { flags: ['json', 'allow-remote'] });
+  const store = new SQLiteRuntimeStore(databasePath(options));
+  if (command !== 'serve') {
+    try {
+      const workflow = store.getWorkflow(command);
+      if (!workflow) fail(`unknown workflow: ${command ?? '(missing)'}`);
+      const report = {
+        workflow,
+        attempts: store.listAttempts({ workflowRunId: command }),
+        attention: store.listAttention({ openOnly: false }).filter((item) => item.workflow_run_id === command),
+        events: store.listEvents({ workflowRunId: command, limit: options.limit ? Number(options.limit) : 100 })
+      };
+      print(report, options.json, (value) => `${value.workflow.run_id} ${value.workflow.state}\n${value.events.length} events`);
+    } finally {
+      store.close();
+    }
+    return;
+  }
+  const server = new RuntimeWatchServer(store, {
+    host: options.host ?? '127.0.0.1',
+    port: options.port ? Number(options.port) : 8787,
+    allowRemote: options['allow-remote'] === true
+  });
+  const address = await server.listen();
+  print({ address }, options.json, (value) => `Watch server listening on ${value.address.address}:${value.address.port}`);
+  const abort = new AbortController();
+  const stop = () => abort.abort();
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+  try {
+    await new Promise((resolve) => abort.signal.addEventListener('abort', resolve, { once: true }));
+  } finally {
+    await server.close();
+    store.close();
+    process.removeListener('SIGINT', stop);
+    process.removeListener('SIGTERM', stop);
   }
 }
 
@@ -241,7 +315,8 @@ async function service(command, args) {
     registry,
     decisionRunner: new AuditedDecisionRunner({ store, provider }),
     primaryCapabilities: DEFAULT_PRIMARY_CAPABILITIES,
-    processSupervisor: supervisor
+    processSupervisor: supervisor,
+    resultContractService: new ResultContractService({ workspace: options.cwd ?? process.cwd() })
   });
   const pipeline = new RelayPipeline({
     store,
@@ -253,19 +328,27 @@ async function service(command, args) {
     processSupervisor: supervisor,
     onJob: createRuntimeJobHandler({ store, daemon })
   });
+  const host = new RuntimeHost({
+    store,
+    sourceRegistry: new SourceRegistry({
+      store, pipeline, workspaceRoot: options.cwd ?? process.cwd()
+    }),
+    scheduleEngine: new ScheduleEngine(store),
+    runtimeService: runtime
+  });
   const abort = new AbortController();
   const stop = () => abort.abort();
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
   try {
     if (command === 'once') {
-      const report = await runtime.runOnce();
-      print(report, options.json, (value) => `jobs completed=${value.jobs_completed} failed=${value.jobs_failed}`);
+      const report = await host.runOnce();
+      print(report, options.json, (value) => `jobs completed=${value.runtime.jobs_completed} failed=${value.runtime.jobs_failed}`);
     } else {
-      await runtime.start({ signal: abort.signal, pollMs: options.poll ? Number(options.poll) : 1_000 });
+      await host.start({ signal: abort.signal, pollMs: options.poll ? Number(options.poll) : 1_000 });
     }
   } finally {
-    runtime.close();
+    host.close();
     store.close();
     process.removeListener('SIGINT', stop);
     process.removeListener('SIGTERM', stop);
@@ -284,6 +367,10 @@ Usage:
   gpt-relay approval grant|deny <attention-id> [--reason <value>] [--db <file>] [--json]
   gpt-relay workflow resume <run-id> [--reason <value>] [--db <file>] [--json]
   gpt-relay source scan-file <task.json> [--cwd <workspace>] [--db <file>] [--json]
+  gpt-relay source add-file|add-git <source-id> <path> [--db <file>] [--json]
+  gpt-relay source list|enable|disable [source-id] [--db <file>] [--json]
+  gpt-relay watch <run-id> [--db <file>] [--json]
+  gpt-relay watch serve [--host <address>] [--port <n>] [--allow-remote] [--db <file>]
   gpt-relay doctor codex [--live] [--cli <file>] [--cli-arg <value>] [--json]
   gpt-relay service once|start [--db <file>] [--model <id>] [--poll <ms>] [--json]
   gpt-relay task validate-vnext <file> [--json]
@@ -307,6 +394,8 @@ if (args[0] === '--version' || args[0] === '-v') {
   workflow(args[1], args.slice(2));
 } else if (args[0] === 'source') {
   await source(args[1], args.slice(2));
+} else if (args[0] === 'watch') {
+  await watch(args[1], args.slice(2));
 } else if (args[0] === 'doctor') {
   await doctor(args[1], args.slice(2));
 } else if (args[0] === 'service') {
