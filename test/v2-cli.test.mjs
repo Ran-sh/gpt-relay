@@ -169,10 +169,11 @@ test('CLI manages persistent sources and returns a workflow watch snapshot', (t)
 
   const github = run([
     'source', 'add-github', 'github-main', '--secret-env', 'GITHUB_WEBHOOK_SECRET',
-    '--db', database, '--json'
+    '--workflow', 'W-github-main', '--db', database, '--json'
   ]);
   assert.equal(github.status, 0, github.stderr);
   assert.deepEqual(JSON.parse(github.stdout).source.secret_env, { webhook: 'GITHUB_WEBHOOK_SECRET' });
+  assert.equal(JSON.parse(github.stdout).source.config.workflow_run_id, 'W-github-main');
 
   const disabled = run(['source', 'disable', 'contracts', '--db', database, '--json']);
   assert.equal(disabled.status, 0, disabled.stderr);
