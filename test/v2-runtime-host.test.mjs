@@ -56,3 +56,20 @@ test('runtime host isolates source errors and keeps later phases running', async
   assert.equal(ran, true);
   assert.equal(report.sources.errors[0].source_id, 'broken');
 });
+
+test('runtime host consumes persistent SourceRegistry buildEnabled API', async () => {
+  let scans = 0;
+  const host = new RuntimeHost({
+    store: { enqueueJob() {}, listAttention() { return []; } },
+    sourceRegistry: {
+      buildEnabled() {
+        return [{ source_id: 'persistent-file', async scanOnce() { scans += 1; return true; } }];
+      }
+    },
+    runtimeService: { async runOnce() { return {}; }, close() {} }
+  });
+
+  const report = await host.runOnce();
+  assert.equal(scans, 1);
+  assert.equal(report.sources.changed, 1);
+});
