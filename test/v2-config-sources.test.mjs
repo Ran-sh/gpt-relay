@@ -90,7 +90,7 @@ test('workspace and workflow config resolve fail-closed', () => {
   }), /expand.*scope/i);
 });
 
-test('SourceRegistry constructs only enabled in-workspace file and git observers', () => {
+test('SourceRegistry constructs only enabled in-workspace file and git observers', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'relay-sources-'));
   mkdirSync(path.join(root, 'repo'));
   writeFileSync(path.join(root, 'task.json'), '{}');
@@ -110,6 +110,7 @@ test('SourceRegistry constructs only enabled in-workspace file and git observers
   assert.ok(sources.some((entry) => entry.source_id === 'git-1' && entry.observer instanceof GitObserver));
 
   store.upsertSourceConfig({ source_id: 'escape', type: 'file', enabled: true, config: { path: '../outside.json' } });
-  assert.throws(() => registry.buildEnabled(), /workspace root/i);
+  const escaped = registry.buildEnabled().find((entry) => entry.source_id === 'escape');
+  await assert.rejects(() => escaped.scanOnce(), /workspace root/i);
   store.close();
 });

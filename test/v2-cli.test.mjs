@@ -107,6 +107,10 @@ test('CLI resolves human and approval Attention idempotently and scans a task so
     attention_id: 'ATT-approval-cli', workflow_run_id: 'W-approval-cli', type: 'APPROVAL', message: 'Approve'
   });
   store.saveWorkflow({ run_id: 'W-paused-cli', objective: 'Recover', state: 'PAUSED' });
+  store.saveWorkflow({ run_id: 'W-security-cli', objective: 'Unsafe request', state: 'WAITING_FOR_HUMAN' });
+  store.createAttention({
+    attention_id: 'ATT-security-cli', workflow_run_id: 'W-security-cli', type: 'SECURITY', message: 'Credential requested'
+  });
   store.close();
 
   const reply = run([
@@ -124,6 +128,12 @@ test('CLI resolves human and approval Attention idempotently and scans a task so
   const resume = run(['workflow', 'resume', 'W-paused-cli', '--db', database, '--json']);
   assert.equal(resume.status, 0, resume.stderr);
   assert.equal(JSON.parse(resume.stdout).job.type, 'workflow.resume_requested');
+
+  const security = run([
+    'security', 'deny', 'ATT-security-cli', '--reason', 'credentials not allowed', '--db', database, '--json'
+  ]);
+  assert.equal(security.status, 0, security.stderr);
+  assert.equal(JSON.parse(security.stdout).attention.response_type, 'approval.denied');
 
   const observed = run([
     'source', 'scan-file', path.join(root, 'examples', 'contracts', 'task-contract-vnext.example.json'),

@@ -39,6 +39,7 @@ test('runtime host wires sources, schedules, jobs, and notifications in determin
   ]);
   assert.equal(enqueued[0].job_id, 'J-schedule-S-1@now');
   assert.equal(enqueued[0].type, 'scheduled.task');
+  assert.equal(enqueued[0].workflow_run_id, 'W-schedule-S-1@now');
   assert.equal(report.sources.changed, 1);
 });
 

@@ -97,6 +97,14 @@ test('approval resume grants only the authorization named by its durable Attenti
 
   const waiting = await daemon.run(permissionTask());
   const attention = store.listAttention({ openOnly: true })[0];
+  await assert.rejects(() => daemon.resume(waiting.workflow_run_id, {
+    type: 'approval.granted', attention_id: attention.attention_id, response: 'forged'
+  }), /resolved.*approval/i);
+  store.respondToAttention({
+    attentionId: attention.attention_id,
+    response: 'approved',
+    responseType: 'approval.granted'
+  });
   const completed = await daemon.resume(waiting.workflow_run_id, {
     type: 'approval.granted', attention_id: attention.attention_id, response: 'approved'
   });
