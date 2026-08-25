@@ -155,7 +155,18 @@ async function source(command, args) {
   if (!file) fail('source scan-file requires a task contract file');
   const store = new SQLiteRuntimeStore(databasePath(options));
   try {
-    const pipeline = new RelayPipeline({ store });
+    const pipeline = new RelayPipeline({
+      store,
+      route: async (event) => {
+        if (event.type !== 'task.created' && event.type !== 'task.resumed') return;
+        store.enqueueJob({
+          job_id: `J-event-${event.event_id}`,
+          workflow_run_id: event.workflow_run_id,
+          type: event.type,
+          payload: event.payload
+        });
+      }
+    });
     const observer = new FileContractObserver({ store, pipeline });
     const result = await observer.scanOnce(path.resolve(file));
     const report = result ?? { status: 'unchanged', event: null };
