@@ -200,7 +200,7 @@ function operatorCommand(kind, command, args) {
   const report = withStore(options, (store) => {
     const attention = store.getAttention(attentionId);
     if (!attention) fail(`unknown Attention: ${attentionId}`);
-    const expectedType = kind === 'human' ? 'DECISION' : 'APPROVAL';
+    const expectedType = kind === 'human' ? 'DECISION' : kind === 'security' ? 'SECURITY' : 'APPROVAL';
     if (attention.type !== expectedType) fail(`Attention ${attentionId} is ${attention.type}, expected ${expectedType}`);
     return {
       attention: store.respondToAttention({
@@ -479,6 +479,7 @@ Usage:
   gpt-relay runtime events --workflow <id> [--db <file>] [--control-only] [--limit <n>] [--json]
   gpt-relay human reply <attention-id> --text <value> [--db <file>] [--json]
   gpt-relay approval grant|deny <attention-id> [--reason <value>] [--db <file>] [--json]
+  gpt-relay security deny <attention-id> --reason <value> [--db <file>] [--json]
   gpt-relay workflow resume <run-id> [--reason <value>] [--db <file>] [--json]
   gpt-relay source scan-file <task.json> [--cwd <workspace>] [--db <file>] [--json]
   gpt-relay source add-file|add-git <source-id> <path> [--db <file>] [--json]
@@ -513,6 +514,9 @@ if (args[0] === '--version' || args[0] === '-v') {
   operatorCommand('human', args[1], args.slice(2));
 } else if (args[0] === 'approval') {
   operatorCommand('approval', args[1], args.slice(2));
+} else if (args[0] === 'security') {
+  if (args[1] !== 'deny') fail('security only supports deny');
+  operatorCommand('security', args[1], args.slice(2));
 } else if (args[0] === 'workflow') {
   workflow(args[1], args.slice(2));
 } else if (args[0] === 'source') {

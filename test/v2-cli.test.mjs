@@ -144,7 +144,7 @@ test('CLI resolves human and approval Attention idempotently and scans a task so
 
   const reopened = new SQLiteRuntimeStore(database);
   const jobs = reopened.listJobs({ status: 'PENDING' });
-  assert.equal(jobs.length, 4);
+  assert.equal(jobs.length, 5);
   assert.equal(jobs.some((job) => job.type === 'task.created' && job.payload.path.endsWith('task-contract-vnext.example.json')), true);
   assert.equal(reopened.listEvents({ workflowRunId: 'W-T-104' }).length, 1);
   reopened.close();
