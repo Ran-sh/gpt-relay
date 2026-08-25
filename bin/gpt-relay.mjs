@@ -22,6 +22,7 @@ import { WorkflowDaemon } from '../lib/runtime/daemon.mjs';
 import { ProcessSupervisor } from '../lib/runtime/process-supervisor.mjs';
 import {
   DEFAULT_PRIMARY_CAPABILITIES,
+  createProductionNotifier,
   createProductionRoute,
   createRuntimeJobHandler
 } from '../lib/runtime/production-runtime.mjs';
@@ -375,7 +376,7 @@ async function doctor(command, args) {
 
 async function service(command, args) {
   if (!['once', 'start'].includes(command)) fail(`unknown service command: ${command ?? '(missing)'}`);
-  const options = parseOptions(args, { flags: ['json'] });
+  const options = parseOptions(args, { flags: ['json', 'quiet-notifications'] });
   if (!process.env.OPENAI_API_KEY) fail('service requires OPENAI_API_KEY for audited workflow decisions');
   const store = new SQLiteRuntimeStore(databasePath(options));
   const sessions = new SessionRegistry(store);
@@ -411,7 +412,11 @@ async function service(command, args) {
       store, pipeline, workspaceRoot: options.cwd ?? process.cwd()
     }),
     scheduleEngine: new ScheduleEngine(store),
-    runtimeService: runtime
+    runtimeService: runtime,
+    notifier: createProductionNotifier(store, {
+      console: options['quiet-notifications'] !== true,
+      jsonlFile: options['notify-jsonl'] ?? null
+    })
   });
   const abort = new AbortController();
   const stop = () => abort.abort();
@@ -451,7 +456,7 @@ Usage:
   gpt-relay watch serve [--host <address>] [--port <n>] [--allow-remote] [--db <file>]
   gpt-relay ingress github [--host <address>] [--port <n>] [--db <file>]
   gpt-relay doctor codex [--live] [--cli <file>] [--cli-arg <value>] [--json]
-  gpt-relay service once|start [--db <file>] [--model <id>] [--poll <ms>] [--json]
+  gpt-relay service once|start [--db <file>] [--model <id>] [--poll <ms>] [--notify-jsonl <file>] [--quiet-notifications] [--json]
   gpt-relay task validate-vnext <file> [--json]
   gpt-relay config resolve <workspace.json> [--workflow <file>] [--task <file>] [--json]
   gpt-relay --version
