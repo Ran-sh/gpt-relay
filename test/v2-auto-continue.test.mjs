@@ -81,6 +81,7 @@ test('bounded state packet excludes trace noise, secrets, and oversized inline e
   assert.equal(packet.recent_events.length, 1);
   assert.equal(packet.recent_events[0].type, 'executor.completed');
   assert.deepEqual(packet.artifact_refs, ['artifact://E-large']);
+  assert.deepEqual(packet.workflow, { run_id: 'W-1' });
   assert.match(packet.handoff, /PARTIAL/);
 });
 
