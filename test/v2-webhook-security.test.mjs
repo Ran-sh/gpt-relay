@@ -71,3 +71,24 @@ test('invalid signed JSON cannot poison a GitHub delivery ID', async (t) => {
   }, { workflow_run_id: 'W-retry' });
   assert.equal(result.status, 'routed');
 });
+
+test('failed canonical routing leaves a GitHub delivery retryable', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  let fail = true;
+  const pipeline = new RelayPipeline({
+    store,
+    route: async () => {
+      if (fail) throw new Error('router unavailable');
+    }
+  });
+  const source = new GitHubWebhookSource({ secret: 'secret', store, pipeline });
+  const body = Buffer.from(JSON.stringify({ action: 'opened', pull_request: { number: 2 } }));
+  const headers = {
+    'x-github-delivery': 'delivery-retry', 'x-github-event': 'pull_request',
+    'x-hub-signature-256': signature('secret', body)
+  };
+  await assert.rejects(source.accept({ headers, body }, { workflow_run_id: 'W-hook-retry' }), /router unavailable/);
+  fail = false;
+  assert.equal((await source.accept({ headers, body }, { workflow_run_id: 'W-hook-retry' })).status, 'routed');
+});
