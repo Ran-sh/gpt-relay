@@ -131,3 +131,18 @@ test('CLI resolves human and approval Attention idempotently and scans a task so
   assert.equal(reopened.listEvents({ workflowRunId: 'W-T-104' }).length, 1);
   reopened.close();
 });
+
+test('CLI exposes executor doctor and guards production service configuration', () => {
+  const fixture = path.join(root, 'test', 'fixtures', 'fake-codex.mjs');
+  const doctor = run([
+    'doctor', 'codex', '--cli', process.execPath, '--cli-arg', fixture, '--json'
+  ]);
+  assert.equal(doctor.status, 0, doctor.stderr);
+  assert.equal(JSON.parse(doctor.stdout).ready, true);
+
+  const service = run(['service', 'once', '--db', path.join(root, '.ignored-service.sqlite'), '--json'], {
+    env: { ...process.env, OPENAI_API_KEY: '' }
+  });
+  assert.equal(service.status, 1);
+  assert.match(service.stderr, /OPENAI_API_KEY/);
+});
