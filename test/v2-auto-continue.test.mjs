@@ -185,3 +185,63 @@ test('daemon never starts an executor when the primary has no capability gap', a
   assert.equal(outcome.state, 'COMPLETED');
   assert.deepEqual(executor.stats(), { starts: 0, resumes: 0, cancels: 0 });
 });
+
+test('executor lifecycle failure durably closes the attempt and workflow', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  const broken = {
+    id: 'broken',
+    async detect() { return { ready: true, reason: null }; },
+    async capabilities() { return ['local.shell', 'local.test']; },
+    async start() { throw new Error('spawn denied'); }
+  };
+  const registry = new ExecutorRegistry();
+  registry.register(broken);
+  const daemon = new WorkflowDaemon({
+    store,
+    registry,
+    decisionRunner: new ScriptedDecisionRunner([]),
+    primaryCapabilities: ['reasoning']
+  });
+
+  const outcome = await daemon.run(task());
+  const [attempt] = store.listAttempts({ workflowRunId: outcome.workflow_run_id });
+  assert.equal(outcome.state, 'FAILED');
+  assert.equal(attempt.status, 'FAIL');
+  assert.match(attempt.evidence.summary, /spawn denied/);
+  assert.equal(store.getWorkflow(outcome.workflow_run_id).state, 'FAILED');
+  assert.match(store.listAttention({ openOnly: true })[0].message, /spawn denied/);
+});
+
+test('daemon registers an executor PID after the session is announced', async (t) => {
+  const store = new SQLiteRuntimeStore(':memory:');
+  t.after(() => store.close());
+  const registrations = [];
+  const executor = new FakeExecutor({
+    capabilities: ['local.shell', 'local.test'],
+    events: [
+      { id: 'session', type: 'thread.started', thread_id: 'S-pid' },
+      { id: 'done', type: 'turn.completed' }
+    ],
+    result: { status: 'FAIL', summary: 'done', session_id: 'S-pid' }
+  });
+  const originalStart = executor.start.bind(executor);
+  executor.start = async (...args) => ({ ...await originalStart(...args), pid: 4242 });
+  const registry = new ExecutorRegistry();
+  registry.register(executor);
+  const daemon = new WorkflowDaemon({
+    store,
+    registry,
+    decisionRunner: new ScriptedDecisionRunner([{ decision: 'FAIL', reason: 'expected' }]),
+    primaryCapabilities: ['reasoning'],
+    processSupervisor: {
+      register(binding) { registrations.push(binding); },
+      unregister() {}
+    }
+  });
+
+  await daemon.run(task());
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0].pid, 4242);
+  assert.equal(registrations[0].session.session_id, 'S-pid');
+});
