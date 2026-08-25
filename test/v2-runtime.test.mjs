@@ -83,7 +83,7 @@ test('normalizer maps provider events to canonical control and trace lanes', () 
     type: 'request.opened',
     payload: { requestType: 'permission', summary: 'run tests' }
   }, context);
-  assert.equal(approval.type, 'approval.requested');
+  assert.equal(approval.type, 'permission.requested');
   assert.equal(approval.lane, 'control');
 
   const completed = normalizeExecutorEvent({
