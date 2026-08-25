@@ -48,6 +48,27 @@ test('remote runner queue fences stale generations and duplicate results', (t) =
   }), /already completed/i);
 });
 
+test('expired remote runner lease is recovered with a new token and generation', (t) => {
+  let now = Date.parse('2026-08-25T00:00:00Z');
+  let token = 0;
+  const store = new SQLiteRuntimeStore(':memory:', { now: () => new Date(now).toISOString() });
+  t.after(() => store.close());
+  const queue = new RemoteRunnerQueue(store, {
+    now: () => new Date(now),
+    idFactory: () => `token-${++token}`
+  });
+  queue.dispatch({ runner_job_id: 'RJ-expired', workflow_run_id: 'W-runner', task: {}, generation: 1 });
+  const stale = queue.claim('runner-a', { ttlMs: 100 });
+  now += 101;
+  const recovered = queue.claim('runner-b', { ttlMs: 100 });
+  assert.equal(recovered.generation, 2);
+  assert.notEqual(recovered.token, stale.token);
+  assert.throws(() => queue.submit({
+    runner_job_id: 'RJ-expired', runner_id: 'runner-a', token: stale.token,
+    generation: stale.generation, result: { status: 'PASS' }
+  }), /lease|token/i);
+});
+
 test('schedule engine emits each due occurrence once', (t) => {
   let now = Date.parse('2026-08-25T00:00:00Z');
   const store = new SQLiteRuntimeStore(':memory:', { now: () => new Date(now).toISOString() });
