@@ -61,6 +61,7 @@ test('runtime CLI initializes and queries durable status, attention, and events'
     session_id: 'S-cli',
     generation: 1
   });
+  store.saveWorkflow({ run_id: 'W-paused-cli', objective: 'Recover', state: 'PAUSED' });
   store.close();
 
   const status = run(['runtime', 'status', '--db', database, '--json']);
@@ -120,6 +121,10 @@ test('CLI resolves human and approval Attention idempotently and scans a task so
   assert.equal(grant.status, 0, grant.stderr);
   assert.equal(JSON.parse(grant.stdout).attention.response_type, 'approval.granted');
 
+  const resume = run(['workflow', 'resume', 'W-paused-cli', '--db', database, '--json']);
+  assert.equal(resume.status, 0, resume.stderr);
+  assert.equal(JSON.parse(resume.stdout).job.type, 'workflow.resume_requested');
+
   const observed = run([
     'source', 'scan-file', path.join(root, 'examples', 'contracts', 'task-contract-vnext.example.json'),
     '--db', database, '--json'
@@ -129,7 +134,7 @@ test('CLI resolves human and approval Attention idempotently and scans a task so
 
   const reopened = new SQLiteRuntimeStore(database);
   const jobs = reopened.listJobs({ status: 'PENDING' });
-  assert.equal(jobs.length, 3);
+  assert.equal(jobs.length, 4);
   assert.equal(jobs.some((job) => job.type === 'task.created' && job.payload.path.endsWith('task-contract-vnext.example.json')), true);
   assert.equal(reopened.listEvents({ workflowRunId: 'W-T-104' }).length, 1);
   reopened.close();
