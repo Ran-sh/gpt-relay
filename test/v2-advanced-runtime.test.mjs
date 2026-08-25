@@ -60,6 +60,11 @@ test('expired remote runner lease is recovered with a new token and generation',
   queue.dispatch({ runner_job_id: 'RJ-expired', workflow_run_id: 'W-runner', task: {}, generation: 1 });
   const stale = queue.claim('runner-a', { ttlMs: 100 });
   now += 101;
+  assert.equal(queue.heartbeat('RJ-expired', 'runner-a', { ttlMs: 100 }), false);
+  assert.throws(() => queue.submit({
+    runner_job_id: 'RJ-expired', runner_id: 'runner-a', token: stale.token,
+    generation: stale.generation, result: { status: 'PASS' }
+  }), /expired/i);
   const recovered = queue.claim('runner-b', { ttlMs: 100 });
   assert.equal(recovered.generation, 2);
   assert.notEqual(recovered.token, stale.token);
